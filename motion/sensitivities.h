@@ -1,7 +1,7 @@
 #ifndef SENSITIVITIES_H
 #define SENSITIVITIES_H
 
-#include "../common/xUtils.h"
+#include "../common/Utils.h"
 
 
 // Base class for specific sensitivities
@@ -34,7 +34,7 @@ struct  ClashSensitivity : public Sensitivity {
       else {      
         uint8_t appliedSetting = ApplyMaster();
         if (!appliedSetting) appliedSetting = 1;
-        xRange<uint8_t, 0> userRange(1, 255);
+        RangeStats<uint8_t, 0> userRange(1, 255);
         clashThreshold = userRange.Rescale(appliedSetting, CLASH_MIN_TH, CLASH_MAX_TH);
       }
     }
@@ -64,7 +64,7 @@ struct  SwSensitivity : public Sensitivity {
         AccentSwingSpeedThreshold_multiplier = 0;       // disable accent swing
       }
       else {
-        xRange<uint8_t, 0> userRange(1, 255);
+        RangeStats<uint8_t, 0> userRange(1, 255);
         uint8_t appliedSetting = ApplyMaster();
         if (!appliedSetting) appliedSetting = 1;
         SwingSensitivity_multiplier = userRange.Rescale(appliedSetting, SWING_MIN_SWS, SWING_MAX_SWS);
@@ -88,7 +88,7 @@ struct  StabSensitivity : public Sensitivity {
     void Set() override {
       if (!userSetting) threshold = STAB_OFF_TH;    // disabled
       else {
-        xRange<uint8_t, 0> userRange(1, 255);
+        RangeStats<uint8_t, 0> userRange(1, 255);
         uint8_t appliedSetting = ApplyMaster();
         if (!appliedSetting) appliedSetting = 1;
         threshold = userRange.Rescale(appliedSetting, STAB_MIN_TH, STAB_MAX_TH);
@@ -118,7 +118,7 @@ struct  ShakeSensitivity : public Sensitivity {
     void Set() override {
       if (!userSetting) threshold = SHAKE_OFF_TH;    // disabled
       else {
-        xRange<uint8_t, 0> userRange(1, 255); 
+        RangeStats<uint8_t, 0> userRange(1, 255); 
         uint8_t appliedSetting = ApplyMaster();
         if (!appliedSetting) appliedSetting = 1;
         threshold = userRange.Rescale(appliedSetting, SHAKE_MIN_TH, SHAKE_MAX_TH);
@@ -132,8 +132,14 @@ struct  ShakeSensitivity : public Sensitivity {
 
 
 #define TAP_DEFAULT     128    // default tap sensitivity
-#define TAP_MIN_TH      50     // tap threshold at minimum sensitivity
-#define TAP_MAX_TH      20     // tap threshold at maximum sensitivity
+#ifdef ARDUINO_ARCH_STM32L4
+  #define TAP_MIN_TH      50     // tap threshold at minimum sensitivity
+  #define TAP_MAX_TH      20     // tap threshold at maximum sensitivity
+#else  
+  #define TAP_MIN_TH      25     // tap threshold at minimum sensitivity
+  #define TAP_MAX_TH      3     // tap threshold at maximum sensitivity
+#endif
+
 #define TAP_OFF_TH      1000   // tap threshold when detection is off
 // #define TAP_MIN_MINTIME 250 // 150    // minimum time between taps at minimum sensitivity
 // #define TAP_MAX_MINTIME SHAKE_MAX_PER+1 // 50     // minimum time between taps at maximum sensitivity - 
@@ -148,7 +154,7 @@ struct  TapSensitivity: public Sensitivity {
     void Set() override {
       if (!userSetting) threshold = TAP_OFF_TH;    // disabled
       else {
-        xRange<uint8_t, 0> userRange(1, 255); 
+        RangeStats<uint8_t, 0> userRange(1, 255); 
         uint8_t appliedSetting = ApplyMaster();
         if (!appliedSetting) appliedSetting = 1;
         threshold = userRange.Rescale(appliedSetting, TAP_MIN_TH, TAP_MAX_TH);
@@ -178,7 +184,7 @@ struct  TwistSensitivity : public Sensitivity {
     uint16_t maxTime;
     TwistSensitivity(uint8_t default_sens = TWIST_DEFAULT) { userSetting = default_sens; }    
     void Set() override {
-      xRange<uint8_t, 0> userRange(0, 255);     // core functionality, cannot be disabled
+      RangeStats<uint8_t, 0> userRange(0, 255);     // core functionality, cannot be disabled
         uint8_t appliedSetting = ApplyMaster();
       threshold = userRange.Rescale(appliedSetting, TWIST_MIN_TH, TWIST_MAX_TH);
       dir = userRange.Rescale(appliedSetting, TWIST_MIN_DIR, TWIST_MAX_DIR);
@@ -209,7 +215,7 @@ struct  MenuSensitivity : public Sensitivity {
     MenuSensitivity(uint8_t default_sens = MNU_DEFAULT) { userSetting = default_sens; }    
 
     void Set() override {
-      xRange<uint8_t, 0> userRange(0, 255);     // core functionality, cannot be disabled
+      RangeStats<uint8_t, 0> userRange(0, 255);     // core functionality, cannot be disabled
       uint8_t appliedSetting = ApplyMaster();
       thetaThreshold = userRange.Rescale(appliedSetting, MNU_MIN_THTH, MNU_MAX_THTH);
       tickThreshold = userRange.Rescale(appliedSetting, MNU_MIN_TKTH, MNU_MAX_TKTH);

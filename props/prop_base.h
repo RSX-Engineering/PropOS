@@ -5,69 +5,17 @@
 #define PROP_INHERIT_PREFIX
 #endif
 
-#ifdef OSx
-  #include "xMenu.h"
-  #ifdef OSX_ENABLE_MTP
-    #include "../common/serial.h"
-  #endif 
-#endif // OSx
+#include "TTmenu.h"
+#ifdef OSX_ENABLE_MTP
+  #include "../common/serial.h"
+#endif 
 
 
-#if !defined(DYNAMIC_CLASH_THRESHOLD) && defined(SAVE_CLASH_THRESHOLD)
-#undef SAVE_CLASH_THRESHOLD
-#endif
+#define PREV_INDEXED (int16_t) -32768   // marker for "previous" font/track
+#define NEXT_INDEXED (int16_t) 32767   // marker for "next" font/track
+#define ENABLE_DIAGNOSE_COMMANDS
 
-#if !defined(DYNAMIC_BLADE_DIMMING) && defined(SAVE_BLADE_DIMMING)
-#undef SAVE_BLADE_DIMMING
-#endif
 
-#if !defined(ENABLE_AUDIO) && defined(SAVE_VOLUME)
-#undef SAVE_VOLUME
-#endif
-
-class SaveGlobalStateFile : public ConfigFile {
-public:
-  void iterateVariables(VariableOP *op) override {
-#ifdef SAVE_CLASH_THRESHOLD
-    CONFIG_VARIABLE2(clash_threshold, CLASH_THRESHOLD_G);
-#endif
-#ifdef SAVE_VOLUME
-    CONFIG_VARIABLE2(volume, -1);
-#endif
-#ifdef SAVE_BLADE_DIMMING
-    CONFIG_VARIABLE2(dimming, 16384);
-#endif
-  }
-#ifdef SAVE_CLASH_THRESHOLD
-  float clash_threshold;
-#endif
-#ifdef SAVE_VOLUME
-  int volume;
-#endif
-#ifdef SAVE_BLADE_DIMMING
-  int dimming;
-#endif
-};
-
-class SavePresetStateFile : public ConfigFile {
-public:
-  void iterateVariables(VariableOP *op) override {
-    CONFIG_VARIABLE2(preset, 0);
-#ifdef DYNAMIC_BLADE_LENGTH
-#define BLADE_LEN_CONFIG_VARIABLE(N) CONFIG_VARIABLE2(blade##N##len, -1);
-    ONCEPERBLADE(BLADE_LEN_CONFIG_VARIABLE);
-#endif
-  }
-  int preset;
-#ifdef DYNAMIC_BLADE_LENGTH
-#define BLADE_LEN_VARIABLE(N) int blade##N##len;
-    #ifndef OSx
-    ONCEPERBLADE(BLADE_LEN_VARIABLE);
-    #else // OSx
-      ONCEPERSUPPORTEDBLADE(BLADE_LEN_VARIABLE);
-    #endif // OSx
-#endif
-};
 
 struct SoundToPlay {
   const char* filename_;
@@ -90,40 +38,9 @@ struct SoundToPlay {
 
 
 
-    template<int QueueLength>
-    class SoundQueue {
-    public:
-      bool Play(SoundToPlay p) {
-        if (sounds_ < QueueLength) {
-          queue_[sounds_++] = p;
-          return true;
-        }
-        return false;
-      }
-      bool Play(const char* p) {
-        return Play(SoundToPlay(p));
-      }
-      // Called from Loop()
-      void PollSoundQueue(RefPtr<BufferedWavPlayer>& player) {
-        if (sounds_ &&  (!player || !player->isPlaying())) {
-          if (!player) {
-            player = GetFreeWavPlayer();
-            if (!player) return;
-            player->set_volume_now(1.0f);
-          }
-          queue_[0].Play(player.get());
-          sounds_--;
-          for (int i = 0; i < sounds_; i++) queue_[i] = queue_[i+1];
-        }
-      }
-    private:
-      int sounds_;
-      SoundToPlay queue_[QueueLength];
-    };
-
 // Base class for props.
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
-class PropBase : CommandParser, Looper, public xPowerSubscriber, protected SaberBase {
+#ifdef SABERPROP
+class PropBase : CommandParser, Looper, public PowerSubscriber, protected SaberBase {
 public:
 void PwrOn_Callback() override { 
     #ifdef DIAGNOSE_POWER
@@ -135,22 +52,19 @@ void PwrOn_Callback() override {
       STDOUT.println(" cpu- "); 
     #endif
   }
-#else  // nULTRA_PROFFIE
+#else  
 class PropBase : CommandParser, Looper, protected SaberBase {
-#endif // ULTRA_PROFFIE
+#endif 
 
 public: 
-#ifndef OSx
-  PropBase() : CommandParser() {}
-#else // OSx
-  xMenu<uint16_t>* menu;    // if a menu is assigned to prop, events will be redirected to menu.Event()
-  #ifdef ULTRA_PROFFIE
-    PropBase() : CommandParser(), Looper(), xPowerSubscriber(pwr4_CPU) { menu=0; accResultant = 0;}
-  #else // nULTRA_PROFFIE
-    xMenu<uint16_t>* menu;    // if a menu is assigned to prop, events will be redirected to menu.Event()
-    PropBase() : CommandParser() { menu=0; accResultant = 0;}
-  #endif // ULTRA_PROFFIE
-#endif // OSx
+  TTMenu<uint16_t>* menu;    // if a menu is assigned to prop, events will be redirected to menu.Event()
+  #ifdef SABERPROP
+    PropBase() : CommandParser(), Looper(), PowerSubscriber(pwr4_CPU) { menu=0; }
+  #else 
+    //TTMenu<uint16_t>* menu;    // if a menu is assigned to prop, events will be redirected to menu.Event()
+    PropBase() : CommandParser() { menu=0; }
+  #endif
+
 
   BladeStyle* current_style() {
 #if NUM_BLADES == 0
@@ -162,28 +76,24 @@ public:
   }
 
   const char* current_preset_name() {
-    #if !defined(OSx) || defined(OLDPROFILE)       
-        return current_preset_.name.get();
-    #else // OSx
           return current_preset_->name;
-    #endif // OSx
       }
 
-#if defined(ULTRA_PROFFIE) && defined(OSx)
+#ifdef SABERPROP
   bool HoldPower() override {  // Return true to pause power subscriber timeout
     if (IsOn()) return true;
     if (current_style() && current_style()->NoOnOff()) return true;
     return false;
   }
   inline bool NeedsPower() { return HoldPower(); }
-#else // nULTRA_PROFFIE
+#else 
   bool NeedsPower() {
     if (SaberBase::IsOn()) return true;
     if (current_style() && current_style()->NoOnOff())
       return true;
     return false;
   }
-#endif // ULTRA_PROFFIE
+#endif
 
 
   int32_t muted_volume_ = 0;
@@ -193,7 +103,7 @@ public:
       if (dynamic_mixer.get_volume()) {
         muted_volume_ = dynamic_mixer.get_volume();
         dynamic_mixer.set_volume(0);
-        #ifdef ULTRA_PROFFIE
+        #if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
           SilentEnableAmplifier(false);
           SilentEnableBooster(false);
         #endif
@@ -203,7 +113,7 @@ public:
       if (muted_volume_) {
         dynamic_mixer.set_volume(muted_volume_);
         muted_volume_ = 0;
-        #ifdef ULTRA_PROFFIE
+        #if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
           SilentEnableAmplifier(true);
           SilentEnableBooster(true);
         #endif
@@ -220,11 +130,6 @@ public:
   uint32_t clash_timeout_ = 100;
 
   bool clash_pending_ = false;
-  #ifndef OSx
-    bool pending_clash_is_stab_ = false;
-  #else
-    int8_t pending_clash_is_stab_ = 0;
-  #endif
   float pending_clash_strength_ = 0.0;
 
   bool on_pending_ = false;
@@ -234,19 +139,24 @@ public:
   }
 
   virtual void On() {
+#ifdef ENABLE_AUDIO
     if (!CommonIgnition()) return;
     SaberBase::DoPreOn();
     on_pending_ = true;
     // Hybrid font will call SaberBase::TurnOn() for us.
-
+#else
+    // No sound means no preon.
+    FastOn();
+#endif    
   }
 
 
-  void FastOn() {
+  virtual void FastOn() {
     if (!CommonIgnition()) return;
     SaberBase::TurnOn();
     SaberBase::DoEffect(EFFECT_FAST_ON, 0);
   }
+
 
 
   void SB_On() override {
@@ -265,11 +175,6 @@ public:
       SaberBase::DoEndLockup();
       SaberBase::SetLockup(SaberBase::LOCKUP_NONE);
     }
-#ifndef DISABLE_COLOR_CHANGE
-    if (SaberBase::GetColorChangeMode() != SaberBase::COLOR_CHANGE_MODE_NONE) {
-      ToggleColorChangeMode();
-    }
-#endif
     SaberBase::TurnOff(off_type);
     if (unmute_on_deactivation_) {
       unmute_on_deactivation_ = false;
@@ -283,15 +188,7 @@ public:
     }
   }
 
-#ifdef DYNAMIC_CLASH_THRESHOLD
-  float clash_threshold_;
-  float GetCurrentClashThreshold() { return clash_threshold_; }
-  void SetClashThreshold(float clash_threshold) { clash_threshold_ = clash_threshold; }
-  #undef CLASH_THRESHOLD_G
-  #define CLASH_THRESHOLD_G clash_threshold_
-#else
   float GetCurrentClashThreshold() { return CLASH_THRESHOLD_G; }
-#endif
 
   void IgnoreClash(size_t ms) {
     if (clash_pending_) return;
@@ -304,38 +201,25 @@ public:
     clash_timeout_ = ms;
   }
 
-  #ifndef OSx
-  virtual void Clash2(bool stab, float strength) {
-  #else
-  virtual void Clash2(int8_t stab, float strength) {
-  #endif
+  virtual void Clash2(float strength) {
     SaberBase::SetClashStrength(strength);
     #ifdef DIAGNOSE_PROP
-        if (stab==1) STDOUT.println("STAB detected!");
-        else  if (stab==-1) STDOUT.println("REV STAB detected!");
-              else STDOUT.println("CLASH detected!");
+      STDOUT.println("CLASH detected!");
     #endif // DIAGNOSE_PROP
             
-    if (Event(BUTTON_NONE, stab ? EVENT_STAB : EVENT_CLASH)) {
+    if (Event(BUTTON_NONE, EVENT_CLASH)) {
       IgnoreClash(400);
-    } else {
+    } 
+    else {
       IgnoreClash(200);
       // Saber must be on and not in lockup mode for stab/clash.
       if (SaberBase::IsOn() && !SaberBase::Lockup()) {
-        if (stab) {
-          // SaberBase::DoStab();     // Not here! This is part of the prop.
-        } else {
           SaberBase::DoClash();
           // STDOUT.print("Orientation = "); STDOUT.println(fusor.angle1());
-        }
       }
     }
   }
-#ifndef OSx
-  virtual void Clash(bool stab, float strength) {
-#else 
-  virtual void Clash(int8_t stab, float strength) {   // stab=-1 => reversed stab
-#endif 
+  virtual void Clash(float strength) {   
     // TODO: Pick clash randomly and/or based on strength of clash.
     uint32_t t = millis();
     if (t - last_clash_ < clash_timeout_) {
@@ -353,15 +237,13 @@ public:
       last_clash_ = millis();
       clash_timeout_ = 3;
       clash_pending_ = true;
-      pending_clash_is_stab_ = stab;
       pending_clash_strength_ = strength;
       return;
     }
-    Clash2(stab, strength);
+    Clash2(strength);
   }
 
   virtual bool chdir(const char* dir) {
-      TRACE(PROP, "chdir");
     if (strlen(dir) > 1 && dir[strlen(dir)-1] == '/') {
       STDOUT.println("Directory must not end with slash.");
       return false;
@@ -416,10 +298,8 @@ public:
       } else if (!SFX_swingl) {
         smooth_swing_config.Version = 0;
       }
-      #ifdef OSx
-        smooth_swing_config.ApplySensitivity(0);  // store unscaled parameters
-        smooth_swing_config.ApplySensitivity(&userProfile.swingSensitivity);  // scale parameters with sensitivity
-      #endif // OSx
+      smooth_swing_config.ApplySensitivity(0);  // store unscaled parameters
+      smooth_swing_config.ApplySensitivity(&userProfile.swingSensitivity);  // scale parameters with sensitivity
       switch (smooth_swing_config.Version) {
         case 1:
           looped_swing_wrapper.Activate(font);
@@ -431,52 +311,10 @@ public:
     }
 //    EnableBooster();
 #endif // ENABLE_AUDIO
-    return false;
+    return true;
   }
 
-  void SaveVolumeIfNeeded() {
-    if (0
-#ifdef SAVE_VOLUME
-      || dynamic_mixer.get_volume() != saved_global_state.volume
-#endif
-#ifdef SAVE_BLADE_DIMMING
-      || SaberBase::GetCurrentDimming() != saved_global_state.dimming
-#endif
-#ifdef SAVE_CLASH_THRESHOLD
-      || GetCurrentClashThreshold() != saved_global_state.clash_threshold
-#endif	
-      ) {
-      SaveGlobalState();
-    }
-  }
 
-  void SaveColorChangeIfNeeded() {
-#if defined(SAVE_COLOR_CHANGE) && !defined(OSx)
-    if (current_preset_.variation != SaberBase::GetCurrentVariation()) {
-      current_preset_.variation = SaberBase::GetCurrentVariation();
-      current_preset_.Save();
-    }
-#endif
-  }
-
-  void PollSaveColorChange() {
-#ifdef ENABLE_AUDIO
-    if (AmplifierIsActive()) return; // Do it later
-#endif
-    SaveColorChangeIfNeeded();
-    SaveVolumeIfNeeded();
-  }
-
-#ifndef OSx
-  bool BladeOff() {
-#ifdef IDLE_OFF_TIME
-    last_on_time_ = millis();
-#endif
-    bool on = IsOn();
-    if (on) Off();
-    return on;
-  }
-#else // OSx
   bool BladeOff(bool silent=false) {
 #ifdef IDLE_OFF_TIME
     last_on_time_ = millis();
@@ -488,7 +326,7 @@ public:
     }
     return on;
   }
-#endif // OSx
+
 
 
   void FreeBladeStyles() {  
@@ -496,64 +334,12 @@ public:
     #define UNSET_BLADE_STYLE(N) {  st = current_config->blade##N->UnSetStyle();  if (st) delete st; }
     ONCEPERBLADE(UNSET_BLADE_STYLE)
     // STDOUT.println("[FreeBladeStyles]");
-      TRACE(PROP, "FreeBladeStyles");
+
 
 
   }
-
-// // Get a address of blade indicated by  current_config.bladeX
-// inline static BladeBase* BladeAddress(uint8_t bladeNo) {
-//     switch (bladeNo) {
-//         #if NUM_BLADES >= 1
-//             case 1: return blades[0].blade1;
-//         #endif
-//          #if NUM_BLADES >= 2
-//             case 2: return blades[0].blade2;
-//         #endif
-//         #if NUM_BLADES >= 3
-//             case 3: return blades[0].blade3;
-//         #endif
-//         #if NUM_BLADES >= 4
-//             case 4: return blades[0].blade4;
-//         #endif
-//         #if NUM_BLADES >= 5
-//             case 5: return blades[0].blade5;
-//         #endif
-//         #if NUM_BLADES >= 6
-//             case 6: return blades[0].blade6;
-//         #endif                                   
-//         default: return 0;
-//     }
-// }
   
   void AllocateBladeStyles() {
-    #ifdef DYNAMIC_BLADE_LENGTH
-        savestate_.ReadINIFromSaveDir("curstate");
-    #define WRAP_BLADE_SHORTERNER(N) \
-        if (savestate_.blade##N##len != -1 && savestate_.blade##N##len != current_config->blade##N->num_leds()) { \
-          tmp = new BladeShortenerWrapper(savestate_.blade##N##len, tmp);   \
-        }
-    #else
-    #define WRAP_BLADE_SHORTERNER(N)
-    #endif
-
-
-    #if !defined(OSx) || defined(OLDPROFILE)
-      #define SET_BLADE_STYLE(N) do {                                         \
-        BladeStyle* tmp = style_parser.Parse(current_preset_.current_style##N.get()); \
-        WRAP_BLADE_SHORTERNER(N)                                            \
-        current_config->blade##N->SetStyle(tmp);                            \
-      } while (0);
-      ONCEPERBLADE(SET_BLADE_STYLE)      
-
-      #ifdef SAVE_COLOR_CHANGE
-          SaberBase::SetVariation(current_preset_.variation);
-      #else
-          SaberBase::SetVariation(0);
-      #endif
-
-    #else // OSx
-      TRACE(PROP, "AllocateBladeStyles");
       for (uint8_t i=0; i<installConfig.nBlades; i++){
         #ifdef DIAGNOSE_PRESETS
           STDOUT.print("Allocating style '"); STDOUT.print(current_preset_->bladeStyle[i]->name); 
@@ -574,65 +360,20 @@ public:
           #endif
         }            
       }
-    #endif // OSx
+
 
   }
 
-  #if !defined(OSx) || defined(OLDPROFILE)
-    // Select preset (font/style)
-    virtual void SetPreset(int preset_num, bool announce) {
-      TRACE(PROP, "start");
-      bool on = BladeOff();
-      SaveColorChangeIfNeeded();
-      // First free all styles, then allocate new ones to avoid memory
-      // fragmentation.
-      FreeBladeStyles();
-      current_preset_.SetPreset(preset_num);
-      AllocateBladeStyles();
-      chdir(current_preset_.font.get());
-      if (on) On();
-      if (announce) {
-        STDOUT << "DISPLAY: " << current_preset_name() << "\n";
-        SaberBase::DoNewFont();
-      }
-      TRACE(PROP, "end");
-    }
 
-    // Update Blade Style (no On/Off for use in Edit Mode)
-    void UpdateStyle() {
-      TRACE(PROP, "start");
-      SaveColorChangeIfNeeded();
-      // First free all styles, then allocate new ones to avoid memory
-      // fragmentation.
-      FreeBladeStyles();
-      current_preset_.SetPreset(current_preset_.preset_num);
-      AllocateBladeStyles();
-      TRACE(PROP, "end");
-    }
-
-      // Set/Update Font & Style, skips Preon effect using FastOn (for use in Edit Mode and "fast" preset changes)
-    void SetPresetFast(int preset_num) {
-      TRACE(PROP, "start");
-      bool on = BladeOff();
-      SaveColorChangeIfNeeded();
-      // First free all styles, then allocate new ones to avoid memory
-      // fragmentation.
-      FreeBladeStyles();
-      current_preset_.SetPreset(preset_num);
-      AllocateBladeStyles();
-      chdir(current_preset_.font.get());
-      if (on) FastOn();
-      TRACE(PROP, "end");
-    }
-#else // OSx
   private:
+
+
     // presetIndex starts from 0 
     void ChangePreset(uint8_t presetIndex) {
       #ifdef DIAGNOSE_PRESETS
         STDOUT.print("Change preset to "); STDOUT.print(presetIndex+1);   // report presets as 1, 2..., even if the actual index starts from 0
         STDOUT.print(" / "); STDOUT.print(presets.size());  STDOUT.print(". ");
       #endif
-      TRACE(PROP, "ChangePreset");
       presetIndex = presetIndex % presets.size();         // circular indexing
       FreeBladeStyles();                               // delete old styles
       if (presets.size()) {
@@ -643,17 +384,40 @@ public:
         AllocateBladeStyles();                              // create new styles
       }
     #ifdef DIAGNOSE_PRESETS
-      else STDOUT.println("Nothing to change.");
+      else {
+        STDOUT.println("Nothing to change, no presets available.");
+        return;
+      }
     #endif
       
-      SaberBase::SetVariation(current_preset_->variation); // update variation
-      chdir(current_preset_->font);                       // change font
+      SaberBase::SetVariation(current_preset_->variation, true); // update variation (including white)
+      // chdir(current_preset_->font);                       // change font
+      char font[MAX_FONTLEN];
+      fonts.GetString(current_preset_->font_index, font);
+      chdir(font);
       userProfile.preset = presetIndex+1;                 // set current preset in user profile
+
+      bool restartTrack = false;
+      if(track_player_) {
+        track_player_->Stop();  
+        // STDOUT.print("Track"); STDOUT.print(track_player_->Filename()); STDOUT.println(" stopped.");
+        restartTrack = true;    
+      }
+      if (restartTrack) {
+        StartOrStopTrack(1);  // start track (will reuse player if exists)
+        // STDOUT.print("Restarting track..."); STDOUT.println(track_player_->Filename());
+      }
+      // else STDOUT.println("Track not playing.");
+
+      if (current_preset_->font_index) fonts.SetCurrent(current_preset_->font_index);  // set current index in fonts (for next/prev)
+      if (current_preset_->track_index) tracks.SetCurrent(current_preset_->track_index);  // set current index in tracks (for next/prev)
+
+
     }
   
   public:
     // preset_num starts at 1!
-    virtual void SetPreset(int preset_num, bool announce) {
+     void SetPreset(int preset_num, bool announce) {
       if (!preset_num) return;    // presets are numbered from 1; 0 means preset error
       bool on = BladeOff();
       ChangePreset(preset_num-1);   
@@ -678,288 +442,142 @@ public:
         else SaberBase::DoEffect(EFFECT_FAST_ON, 0);      
       }
     }
-
- 
-
-
-#endif // OSx
-
-
-
-  // Update Preon IntArg in Edit Mode
-  void UpdatePreon() {
-  #if !defined(OSx) || defined(OLDPROFILE)
-    TRACE(PROP, "start");
-    bool on = BladeOff();
-    SaveColorChangeIfNeeded();
-    // First free all styles, then allocate new ones to avoid memory
-    // fragmentation.
-    FreeBladeStyles();
-    current_preset_.SetPreset(current_preset_.preset_num);
-    AllocateBladeStyles();
-    chdir(current_preset_.font.get());
-    if (on) On();
-    TRACE(PROP, "end");
-  #else // OSx
-  #endif // OSx
-  }
 	
+
+
+
+
+// fontIndex starts at 1, PREV_INDEXED and NEXT_INDEXED are reserved
+// fast = true => don't announce font name if saber is on, just change it
+  void SetFont(int16_t fontIndex, bool fast = false) {
+    if (!fonts.count) return;                  // no fonts indexed
+    if (!fontIndex) return;                    // invalid index
+
+    // 1. Get font name from index
+    char fontName[MAX_FONTLEN];
+    switch(fontIndex) {
+      case PREV_INDEXED: 
+          if (!fonts.GetPrev(fontName)) return;  // set previous as current
+          fontIndex = fonts.GetCurrentIndex();  // get new index
+          // STDOUT.print("SET Previous font: "); STDOUT.println(fontName);
+          break;
+      case NEXT_INDEXED: 
+          if (!fonts.GetNext(fontName)) return;  // set next as current
+          fontIndex = fonts.GetCurrentIndex();  // get new index
+          // STDOUT.print("SET Next font: "); STDOUT.println(fontName);
+          break;
+      default: 
+          if (!fonts.GetString(fontIndex, fontName)) return;  // invalid index
+          fonts.SetCurrent(fontIndex);  // set new current font
+          // STDOUT.print("SET New font: "); STDOUT.println(fontName);
+          break;
+    }
+
+    // 2. Change font and announce
+    bool on = BladeOff(true);   // silent off
+    if (!chdir(fontName)) return;             // change directory
+    // STDOUT.print("Font changed to '"); STDOUT.print(fontName); STDOUT.println("'.");
+    if (on) {
+        hybrid_font.silentOn = true;
+        CommonIgnition();
+        SaberBase::TurnOn();
+        if (!fast) SaberBase::DoNewFont();    // announce new font 
+    }
+    else 
+      SaberBase::DoNewFont();   // just announce new font if saber is off
+    
+    // 3. Update preset with new font index
+    current_preset_->font_index = fontIndex;
+    // STDOUT.print("New font index: "); STDOUT.println(current_preset_->font_index);
+
+  }
+
+  // trackIndex starts at 1, PREV_INDEXED and NEXT_INDEXED are reserved
+  void SetTrack(int16_t trackIndex, bool forceStart = false,  bool fast = false) {
+    if (!tracks.count) return;                  // no tracks indexed
+
+    // 1. Update track index
+    char trackName[MAX_TRACKLEN];   // we don't actually use it, just need it to update current track for next/prev
+    switch(trackIndex) {
+      case PREV_INDEXED: 
+          if (!current_preset_->track_index) tracks.SetCurrent(1);  // if no track, set 1st as current for 'prev' 
+          if (!tracks.GetPrev(trackName)) return;  // set previous as current
+          trackIndex = tracks.GetCurrentIndex();  // get new index
+          break;
+      case NEXT_INDEXED: 
+          if (!current_preset_->track_index) tracks.SetCurrent(tracks.count);  // if no track, set last as current for 'next'
+          if (!tracks.GetNext(trackName)) return;  // set next as current
+          trackIndex = tracks.GetCurrentIndex();  // get new index
+          break;
+      case 0:    // set no track: just announce and leave trackIndex as 0, nothing else to do        
+          break;
+      default: 
+          if (!tracks.GetString(trackIndex, trackName)) return;  // invalid index
+          tracks.SetCurrent(trackIndex);  // set new current track
+          break;
+    }
+
+    // 2. Update preset with new track index
+    current_preset_->track_index = trackIndex;
+
+    // 3. Start or change track     
+    if (trackIndex) { // track assigned
+      if (track_player_) {  // track currently playing
+        track_player_->Stop();  // stop current track
+        StartOrStopTrack(1);  // start new track
+      }
+      else { // track currently not playing
+        if (forceStart) StartOrStopTrack(1);  // start playing even if it was off, if forceStart = true
+        else if (!fast) PlayTrackTag(2000);  // play just the tag if track was not playing
+      }
+    }
+    else {  // no track assigned
+      if (track_player_) track_player_->Stop();  // stop current track, if playing, but don't free it
+      else track_player_ = GetFreeWavPlayer();
+      if(track_player_)track_player_->PlayEffect(&menuSounds, notrack, 0, 1);          
+    }
+
+  }
+
+
+
   // Go to the next Preset.
-  virtual void next_preset() {
-  #if !defined(OSx) || defined(OLDPROFILE)
-    #ifdef SAVE_PRESET
-        SaveState(current_preset_.preset_num + 1);
-    #endif
-        SetPreset(current_preset_.preset_num + 1, true);
-  #else // OSx
+   void next_preset() {
     if (!userProfile.preset) return;    // preset error
     if (++userProfile.preset > presets.size()) userProfile.preset=1;  // circular increment 1..size
     SetPreset(userProfile.preset, true);
-  #endif // OSx
   }
 
   // Go to the next Preset skipping NewFont and Preon effects using FastOn.
   void next_preset_fast() {
-  #if !defined(OSx) || defined(OLDPROFILE)
-    #ifdef SAVE_PRESET
-        SaveState(current_preset_.preset_num + 1);
-    #endif
-        SetPresetFast(current_preset_.preset_num + 1);
-  #else // OSx
     if (!userProfile.preset) return;    // preset error
     if (++userProfile.preset > presets.size()) userProfile.preset=1;  // circular increment 1..size
     SetPresetFast(userProfile.preset);
-  #endif // OSx
+
   }
 
   // Go to the previous Preset.
-  virtual void previous_preset() {
-  #if !defined(OSx) || defined(OLDPROFILE)
-    #ifdef SAVE_PRESET
-        SaveState(current_preset_.preset_num - 1);
-    #endif
-        SetPreset(current_preset_.preset_num - 1, true);
-  #else // OSx
+   void previous_preset() {
     if (!userProfile.preset) return;    // preset error
     if (!--userProfile.preset) userProfile.preset=presets.size();  // circular decrement 1..size
-    SetPreset(userProfile.preset, true);
-  #endif // OSx     
+    SetPreset(userProfile.preset, true); 
   }
 
   // Go to the previous Preset skipping NewFont and Preon effects using FastOn.
   void previous_preset_fast() {
-  #if !defined(OSx) || defined(OLDPROFILE)  
-    #ifdef SAVE_PRESET
-        SaveState(current_preset_.preset_num - 1);
-    #endif
-        SetPresetFast(current_preset_.preset_num - 1);
-  #else // OSx
     if (!userProfile.preset) return;    // preset error
     if (!--userProfile.preset) userProfile.preset=presets.size();  // circular decrement 1..size
     SetPresetFast(userProfile.preset, false); 
-  #endif // OSx 
   }
 
-  // Rotates presets backwards and saves.
-  virtual void rotate_presets() {
-  #if !defined(OSx) || defined(OLDPROFILE)  
-    #ifdef IDLE_OFF_TIME
-        last_on_time_ = millis();
-    #endif
-    #ifdef ENABLE_AUDIO
-        beeper.Beep(0.05, 2000.0);
-    #endif
-        LOCK_SD(true);
-        current_preset_.Load(-1);  // load last preset
-        current_preset_.SaveAt(0); // save in first position, shifting all other presets down
-        LOCK_SD(false);
-        SetPreset(0, true);
-  #else // OSx
-    // get real!
-  #endif // OSx 
-  }
 
-#ifdef BLADE_DETECT_PIN
-  bool blade_detected_ = false;
-#endif
 
-  // Measure and return the blade identifier resistor.
-  float id() {
-    BLADE_ID_CLASS_INTERNAL blade_id;
-    float ret = blade_id.id();
-    STDOUT << "ID: " << ret << "\n";
-#ifdef SPEAK_BLADE_ID
-    talkie.Say(spI);
-    talkie.Say(spD);
-    talkie.SayNumber((int)ret);
-#endif
-#ifdef BLADE_DETECT_PIN
-    if (!blade_detected_) {
-      STDOUT << "NO ";
-      ret += NO_BLADE;
-    }
-    STDOUT << "Blade Detected\n";
-#endif
-    return ret;
-  }
 
   // Called from setup to identify the blade and select the right
   // Blade driver, style and sound font.
-  #if !defined(OSx) || defined(OLDPROFILE)
-  void FindBlade() {
-    size_t best_config = 0;
-    if (NELEM(blades) > 1) {
-      float resistor = id();
-
-      float best_err = 100000000.0;
-      for (size_t i = 0; i < NELEM(blades); i++) {
-        float err = fabsf(resistor - blades[i].ohm);
-        if (err < best_err) {
-          best_config = i;
-          best_err = err;
-        }
-      }
-    }
-    STDOUT.print("blade= ");
-    STDOUT.println(best_config);
-    current_config = blades + best_config;
-
-#define ACTIVATE(N) do {     \
-    if (!current_config->blade##N) goto bad_blade;  \
-    current_config->blade##N->Activate();           \
-  } while(0);
-
-    ONCEPERBLADE(ACTIVATE);
-    RestoreGlobalState();
-#ifdef SAVE_PRESET
-    ResumePreset();
-#else
-    SetPreset(0, false);
-#endif
-    return;
-
-#if NUM_BLADES != 0
-
-  bad_blade:
-    STDOUT.println("BAD BLADE");
-#ifdef ENABLE_AUDIO
-    talkie.Say(talkie_error_in_15, 15);
-    talkie.Say(talkie_blade_array_15, 15);
-#endif
-
-#endif
-      }
-#else // OSx installs blades at runtime from install.cod, so there's no need (or choice) for resistor-based configuration identification
   void ActivateBlades() {  
     #define ACTIVATE(N) current_config->blade##N->Activate(); 
     ONCEPERBLADE(ACTIVATE);
-  }
-#endif
-
-  SavePresetStateFile savestate_;
-
-  void ResumePreset() {
-    savestate_.ReadINIFromSaveDir("curstate");
-    SetPreset(savestate_.preset, false);
-  }
-
-  // Blade length from config file.
-  int GetMaxBladeLength(int blade) {
-#define GET_SINGLE_MAX_BLADE_LENGTH(N) if (blade == N) return current_config->blade##N->num_leds();
-    ONCEPERBLADE(GET_SINGLE_MAX_BLADE_LENGTH)
-    return 0;
-  }
-
-  // If this returns -1 use GetMaxBladeLength()
-  int GetBladeLength(int blade) {
-#ifdef DYNAMIC_BLADE_LENGTH
-#define GET_SINGLE_BLADE_LENGTH(N) if (blade == N) return savestate_.blade##N##len;
-    ONCEPERBLADE(GET_SINGLE_BLADE_LENGTH)
-#endif
-    return -1;
-  }
-
-  // You'll need to reload the styles for this to take effect.
-  void SetBladeLength(int blade, int len) {
-#ifdef DYNAMIC_BLADE_LENGTH
-#define SET_SINGLE_BLADE_LENGTH(N) if (blade == N) savestate_.blade##N##len = len;
-    ONCEPERBLADE(SET_SINGLE_BLADE_LENGTH)
-#endif
-  }
-
-  void WriteState(const char* filename) {
-    PathHelper fn(GetSaveDir(), filename);
-    savestate_.Write(fn);
-  }
-
-  void SaveState(int preset) {
-    STDOUT.println("Saving Current Preset");
-    savestate_.preset = preset;
-    WriteState("curstate.tmp");
-    WriteState("curstate.ini");
-  }
-
-  SaveGlobalStateFile saved_global_state;
-  void RestoreGlobalState() {
-#if defined(SAVE_VOLUME) || defined(SAVE_BLADE_DIMMING) || defined(SAVE_CLASH_THRESHOLD)
-    saved_global_state.ReadINIFromDir(NULL, "global");
-
-#ifdef SAVE_CLASH_THRESHOLD
-    SetClashThreshold(saved_global_state.clash_threshold);
-#endif
-
-#ifdef SAVE_VOLUME
-    if (saved_global_state.volume >= 0) {
-      dynamic_mixer.set_volume(clampi32(saved_global_state.volume, 0, VOLUME));
-    }
-#endif
-
-#ifdef SAVE_BLADE_DIMMING
-    SaberBase::SetDimming(saved_global_state.dimming);
-#endif
-
-#endif
-  }
-
-  void SaveGlobalState() {
-#if defined(SAVE_VOLUME) || defined(SAVE_BLADE_DIMMING) || defined(SAVE_CLASH_THRESHOLD)
-    STDOUT.println("Saving Global State");
-#ifdef SAVE_CLASH_THRESHOLD
-    saved_global_state.clash_threshold = GetCurrentClashThreshold();
-#endif
-#ifdef SAVE_VOLUME
-    saved_global_state.volume = dynamic_mixer.get_volume();
-#endif
-#ifdef SAVE_BLADE_DIMMING
-    saved_global_state.dimming = SaberBase::GetCurrentDimming();
-#endif
-    saved_global_state.Write("global.tmp");
-    saved_global_state.Write("global.ini");
-#endif
-  }
-
-  void FindBladeAgain() {
-  #ifndef OSx
-      if (!current_config) {
-        // FindBlade() hasn't been called yet - ignore this.
-        return;
-      }
-      // Reverse everything that FindBlade does.
-
-      // First free all styles, then allocate new ones to avoid memory
-      // fragmentation.
-      BladeStyle* st;   
-      ONCEPERBLADE(UNSET_BLADE_STYLE)
-
-  #define DEACTIVATE(N) do {                      \
-      if (current_config->blade##N)               \
-        current_config->blade##N->Deactivate();   \
-    } while(0);
-
-      ONCEPERBLADE(DEACTIVATE);
-      SaveVolumeIfNeeded();
-      FindBlade();
-  #endif
   }
 
   // Potentially called from interrupt!
@@ -967,83 +585,36 @@ public:
     fusor.DoMotion(motion, clear);
   }
 
-//  CLASH_THRESHOLD_G already defined
-  #define STAB_TH     userProfile.stabSensitivity.threshold   // stab threshold = minimum XYZ acceleration: 
-  #define STAB_DIR    userProfile.stabSensitivity.dir // 2         // stab directionality = ratio of X and YZ acceleration: 2.0f
 
 
-#define STAB_SPEED  150       // stab speed = maximum swing speed: 150
+
   // Potentially called from interrupt! 
-  virtual void DoAccel(const Vec3& accel, bool clear) {
+virtual void DoAccel(const Vec3& accel, bool clear) {
     fusor.DoAccel(accel, clear);
     accel_loop_counter_.Update();
-    Vec3 diff = (accel - fusor.down());
+    Vec3 diff = fusor.clash_mss();
     float v;
     if (clear) {
       accel_ = accel;
       diff = Vec3(0,0,0);
       v = 0.0;
     } else {
+#ifndef PROFFIEOS_DONT_USE_GYRO_FOR_CLASH
+      v = (diff.len() + fusor.gyro_clash_value()) / 2.0;
+#else      
       v = diff.len();
+#endif      
     }
-    #ifndef OSx
-      // If we're spinning the saber, require a stronger acceleration
-      // to activate the clash.
-      if (v > CLASH_THRESHOLD_G + fusor.gyro().len() / 200.0) {
-        if ( (accel_ - fusor.down()).len2() > (accel - fusor.down()).len2() ) {
-          diff = -diff;
-        }
-        #ifndef ULTRA_PROFFIE
-        bool stab = diff.x < - 2.0 * sqrtf(diff.y * diff.y + diff.z * diff.z) &&
-          fusor.swing_speed() < 150;
-        #else 
-        bool stab = diff.x > 2.0 * sqrtf(diff.y * diff.y + diff.z * diff.z) &&
-          fusor.swing_speed() < 150;
-        #endif   
 
-
-        if (clash_pending1_) {
-          pending_clash_strength1_ = std::max<float>(v, (float)pending_clash_strength1_);
-        } else {
-          clash_pending1_ = true;
-          pending_clash_is_stab1_ = stab;
-          pending_clash_strength1_ = v;
-        }
-      }
-    #else // OSx
-      accResultant = v;    // Need this for out-of-ISR detections and we're not gonna run sqrt() again!
       // Detect clash
       if (v > CLASH_THRESHOLD_G + fusor.gyro().len() / 200.0) { 
         if (clash_pending1_) {
           pending_clash_strength1_ = std::max<float>(v, (float)pending_clash_strength1_);
         } else {
           clash_pending1_ = true;
-          pending_clash_is_stab1_ = false;  // for now, check stab later
           pending_clash_strength1_ = v;
         }
-      }      
-      // Detect stab (different threshold than clash)
-      if (v > STAB_TH && !clash_pending1_) { 
-        bool revStab = false;
-        if ( (accel_ - fusor.down()).len2() > (accel - fusor.down()).len2() ) {
-          diff = -diff;
-          revStab = true;
-        }
-        #ifndef ULTRA_PROFFIE
-          bool stab = diff.x < - STAB_DIR * sqrtf(diff.y * diff.y + diff.z * diff.z) && fusor.swing_speed() < STAB_SPEED;
-        #else 
-          bool stab = (diff.x > STAB_DIR * sqrtf(diff.y * diff.y + diff.z * diff.z)) && (fusor.swing_speed() < STAB_SPEED);
-        #endif
-        if (stab) {
-          // if (revStab) { pending_clash_is_stab1_ = -1; STDOUT.println("-1"); }
-          // else { pending_clash_is_stab1_ = 1;  STDOUT.println("1"); }
-          if (revStab) pending_clash_is_stab1_ = -1; 
-          else pending_clash_is_stab1_ = 1;  
-          clash_pending1_ = true;
-        }
-      }      
-    #endif // OSx
-
+      }                
     accel_ = accel;
   }
 
@@ -1070,36 +641,6 @@ public:
   };
 
   Stroke strokes[5];
-
-
-  void MonitorStrokes() {
-    if (monitor.IsMonitoring(Monitoring::MonitorStrokes)) {
-      STDOUT.print("Stroke: ");
-      switch (strokes[NELEM(strokes)-1].type) {
-        case TWIST_LEFT:
-          STDOUT.print("TwistLeft");
-          break;
-        case TWIST_RIGHT:
-          STDOUT.print("TwistRight");
-          break;
-        case SHAKE_FWD:
-          STDOUT.print("Thrust");
-          break;
-        case SHAKE_REW:
-          STDOUT.print("Yank");
-          break;
-        default: break;
-      }
-      STDOUT << " len = " << strokes[NELEM(strokes)-1].length();
-      uint32_t separation =
-        strokes[NELEM(strokes)-1].start_millis -
-        strokes[NELEM(strokes)-2].end_millis;
-      STDOUT << " separation=" << separation
-             << " mss=" << fusor.mss()
-             << " swspd=" << fusor.swing_speed()
-             << "\n";
-    }
-  }
 
   StrokeType GetStrokeGroup(StrokeType a) {
     switch (a) {
@@ -1140,7 +681,6 @@ public:
     if (strokes[NELEM(strokes) - 1].end_millis == 0 &&
         GetStrokeGroup(gesture) == GetStrokeGroup(strokes[NELEM(strokes) - 1].type)) {
       strokes[NELEM(strokes) - 1].end_millis = millis();
-      MonitorStrokes();
       return true;
     }
     // Exit here if it's a *_CLOSE stroke.
@@ -1160,70 +700,6 @@ public:
 
   
 
-#ifndef OSx
-// The prop should call this from Loop() if it wants to detect twists.
-  void DetectTwist() {
-    Vec3 gyro = fusor.gyro();
-    bool process = false;
-    if (fabsf(gyro.x) > 200.0 &&
-        fabsf(gyro.x) > 3.0f * abs(gyro.y) &&
-        fabsf(gyro.x) > 3.0f * abs(gyro.z)) {
-      process = DoGesture(gyro.x > 0 ? TWIST_LEFT : TWIST_RIGHT);
-    } else {
-      process = DoGesture(TWIST_CLOSE);
-    }
-    if (process) {
-      if ((strokes[NELEM(strokes)-1].type == TWIST_LEFT &&
-           strokes[NELEM(strokes)-2].type == TWIST_RIGHT) ||
-          (strokes[NELEM(strokes)-1].type == TWIST_RIGHT &&
-           strokes[NELEM(strokes)-2].type == TWIST_LEFT)) {
-        if (strokes[NELEM(strokes) -1].length() > 90UL &&
-            strokes[NELEM(strokes) -1].length() < 300UL &&
-            strokes[NELEM(strokes) -2].length() > 90UL &&
-            strokes[NELEM(strokes) -2].length() < 300UL) {
-          uint32_t separation =
-            strokes[NELEM(strokes)-1].start_millis -
-            strokes[NELEM(strokes)-2].end_millis;
-          if (separation < 200UL) {
-            STDOUT.println("TWIST");
-            // We have a twisting gesture.
-            Event(BUTTON_NONE, EVENT_TWIST);
-          }
-        }
-      }
-    }
-  }
-
-  // The prop should call this from Loop() if it wants to detect shakes.
-  void DetectShake() {
-    Vec3 mss = fusor.mss();
-    bool process = false;
-    if (mss.y * mss.y + mss.z * mss.z < 16.0 &&
-        (mss.x > 7 || mss.x < -6)  &&
-        fusor.swing_speed() < 150) {
-      process = DoGesture(mss.x > 0 ? SHAKE_FWD : SHAKE_REW);
-    } else {
-      process = DoGesture(SHAKE_CLOSE);
-    }
-    if (process) {
-      int i;
-      for (i = 0; i < 5; i++) {
-        if (strokes[NELEM(strokes)-1-i].type !=
-            ((i & 1) ? SHAKE_REW : SHAKE_FWD)) break;
-        if (i) {
-          uint32_t separation =
-            strokes[NELEM(strokes)-i].start_millis -
-            strokes[NELEM(strokes)-1-i].end_millis;
-          if (separation > 250) break;
-        }
-      }
-      if (i == 5) {
-        strokes[NELEM(strokes)-1].type = SHAKE_CLOSE;
-        Event(BUTTON_NONE, EVENT_SHAKE);
-      }
-    }
-  }
-#else // OSx
 
   #define TWIST_THRESHOLD   userProfile.twistSensitivity.threshold     // minimum gyro to consider it a stroke
   #define TWIST_DIR         userProfile.twistSensitivity.dir    // minimum directionality (ratio of X/Y and X/Z gyro) to consider it a stroke
@@ -1265,6 +741,105 @@ public:
       }
     }
   }
+
+// Detect start scroll (hard twist + SCROLL_STOPTIME[ms] still)
+#define SCROLL_STOPTIME   100     // silence time after a twist stops, to register it as a scroll [ms]
+#define SCROLL_ENDTWIST   0.5     // fraction of maxTheta below which a twist is considered either ended or changed direction
+#define SCROLL_MINTWIST   MENU_STARTSCROLL/4  // minimum thetaPeak registered as a new twist, during stop time 
+
+int32_t scroll_to_inject;  //  maximum thetaPeak registered during a scroll, to inject it. Sign holds theta sign.
+
+// Detect the beginnign of a scrolling motion (and wait to make sure it's not a double-twist)
+void DetectScroll() {
+  static bool scrollState = false;     // current scrolling state (we're detecting start and end)
+  static uint32_t maxTheta = 0;         // maximum (absolute theta) since scrolling started (we need to detect a change in direction))
+  static uint32_t stopTime = 0;        // time since twisting motion stopped [ms]
+  static uint32_t suspendTime = millis();     // time since detection was suspended, to prevent multi-twist being register as scroll [ms]
+  float thetaNow = abs(fusor.theta());
+#if defined(X_BROADCAST) && defined(BROADCAST_SCROLL)
+  static bool eventState = false;
+#endif
+
+  if (suspendTime) {  // detection suspended
+    if (millis() - suspendTime > MENU_SCROLLPAUSE) {
+      suspendTime = 0;  // end suspension
+      scroll_to_inject = 0; //
+    }
+  }
+  else {  // detection active
+      // thetaNow = abs(fusor.theta());
+      if (scrollState) {  // curent registered state: scrolling
+          if (thetaNow > maxTheta) maxTheta = thetaNow;  // still twisting in the same direction, store maximum theta 
+          if (fusor.thetaPeak() > abs(scroll_to_inject)) { 
+            int8_t thetaSign = scroll_to_inject < 0 ? -1 : 1;  // store theta sign
+            scroll_to_inject = thetaSign * fusor.thetaPeak();  // store maximum thetaPeak and also the sign of the theta that triggered scrolling
+          }
+          else if (thetaNow < SCROLL_ENDTWIST*maxTheta) { // theta below a fraction of max, twist ended or changed direction
+              // if (thetaNow < 0.1*maxTheta) { // motion ended, start measuring stop time
+              if (!thetaNow) { // motion ended, start measuring stop time                 
+                stopTime = millis();  // scroll detected, suspend detection for a while
+              }
+              else {
+                  // motion changed direction, it's a second twist, not a scroll
+                  suspendTime = millis();  // suspend detection for a while, to prevent multi-twist being register as scroll
+              }
+              scrollState = false;
+              maxTheta = 0;
+          }     
+      }
+      else {  // curent registered state: not scrolling 
+          if (stopTime) { // we're measuring stop time after a scroll stop, to make sure another (reversed) twist won't start immediately
+            if (fusor.thetaPeak() > SCROLL_MINTWIST) { // some twist detected during stop time:
+              stopTime = 0;             // cancel counting stop time
+              suspendTime = millis();   // suspend detection for a while, to prevent multi-twist being register as scroll
+            }
+            else if (millis() - stopTime >= SCROLL_STOPTIME) {  // stop time ended without any other twist detection
+              stopTime = 0;             // cancel counting stop time
+              suspendTime = millis();   // suspend detection for a while
+              Event(BUTTON_NONE, EVENT_SCROLL);   // trigger event once, until theta gets below threshold                 
+              #if defined(X_BROADCAST) && defined(BROADCAST_SCROLL)
+                eventState = true;
+              #endif  
+            }          
+          }
+          else if (fusor.thetaPeak() > MENU_STARTSCROLL) {  // not measuring stop time, check if a new scroll is starting
+            maxTheta = thetaNow;  // store theta when scrolling started
+            scroll_to_inject = fusor.thetaPeak();  // store maximum thetaPeak
+            if (fusor.theta() < 0) scroll_to_inject = -scroll_to_inject;  // store theta sign
+            scrollState = true;   // start scrolling  
+          }
+      }
+  
+  }
+  
+ 
+    
+  #if defined(X_BROADCAST) && defined(BROADCAST_SCROLL)
+    struct {
+        int16_t up1 = 0;
+        int16_t up2 = 0;
+        int16_t up3 = 0;
+        int16_t down1 = 0;
+        int16_t down2 = 0;
+        int16_t down3 = 0;
+    } ch1_broadcast;
+    ch1_broadcast.up1 = (int16_t)(thetaNow);
+    ch1_broadcast.up2 = (int16_t)(fusor.thetaPeak()); 
+    if (scrollState) ch1_broadcast.up3 = (int16_t)(100);         
+    if (stopTime) ch1_broadcast.down1 = (int16_t)(millis()-stopTime);
+    // ch1_broadcast.down1 = (int16_t)(maxTheta); 
+    // ch1_broadcast.down2 = (int16_t)(scroll_to_inject); 
+    if (suspendTime) ch1_broadcast.down2 = (int16_t)(millis()-suspendTime);
+    if (eventState) ch1_broadcast.down3 = (int16_t)(100);
+    if (STDOUT.Broadcast(1, &ch1_broadcast, sizeof(ch1_broadcast)) && eventState)
+        eventState = false;   // clear event state after broadcast once
+  #endif // X_BROADCAST    
+
+}
+  
+  
+
+ 
 
 
   #define SHAKE_THRESHOLD       userProfile.shakeSensitivity.threshold      // minimum mss resultant to call it a peak: 150
@@ -1349,19 +924,74 @@ public:
   }
 
 
+// Run detection of ignition gesture(s), return true if detected
+#define IGNITION_SLIDETH 0.5    // minimum slide speed to consider it ignition gesture
+#define IGNITION_THETATH 80     // minimum twist to consider it ignition gesture
+#define IGNITION_TIMEWINDOW 200 // time window to detect ignition gesture [ms]
+bool IgnitionGesture() {
+  bool ignition = false;
+  static uint32_t windowTime = 0;
+
+  if (!windowTime) {  // no condition detected yet
+      if (abs(fusor.slideSpeed()) > IGNITION_SLIDETH && fusor.slideDistance()) {
+          windowTime = millis();  // slide confirmed, start time window to look for twist
+      }
+  }
+  else {
+    if (abs(fusor.theta()) > IGNITION_THETATH) {
+        ignition = true;
+        windowTime = 0;  // reset window
+        // #ifdef DIAGNOSE_PROP
+        //     STDOUT.println("IGNITION gesture detected!");
+        // #endif
+        return true;
+    }
+    if (millis() - windowTime > IGNITION_TIMEWINDOW) windowTime = 0;  // time window expired
+  }
+ 
 
 
-  #define DTAP_ACCTH     userProfile.tapSensitivity.threshold      // acceleration threshold to consider it a clash
-  #define DTAP_CLASHDBT  60     // clash debounce time: time to ignore acceleration after triggering a clash [ms]
-  // #define DTAP_MINTIME   userProfile.tapSensitivity.minTime    // minimum time between clashes to call them taps [ms]
-  #define DTAP_MINTIME   SHAKE_MAX_PER+1    // minimum time between clashes to call them taps [ms]
-  #define DTAP_MAXTIME   userProfile.tapSensitivity.maxTime    // maximum time between clashes to call them taps [ms]
-  #define DTAP_QUIETTIME 500    // minimum time between successive double-taps [ms]
+
+  // if (abs(fusor.theta()) > IGNITION_THETATH && abs(fusor.slideSpeed()) > IGNITION_SLIDETH && abs(fusor.slideDistance())) {
+  //     // slide must be confirmed (by non-zero distance) during twist, to prevent false positives
+  //     #ifdef DIAGNOSE_PROP
+  //         STDOUT.println("IGNITION detected!");
+  //     #endif
+  //     ignition = true;
+  //     // return true;
+  // }
+
+  #if defined(X_BROADCAST) && defined(BROADCAST_IGNITION)
+        struct {
+            int16_t up1=0, up2=0, up3=0;
+            int16_t down1=0, down2=0, down3=0;
+        } ch1_broadcast;
+        ch1_broadcast.up1 = (int16_t)(100*fusor.theta());
+        ch1_broadcast.up2 = (int16_t)(100*fusor.slideSpeed());
+        ch1_broadcast.up3 = (int16_t)(100*fusor.slideDistance());
+        if (windowTime) ch1_broadcast.down1 = (int16_t)(millis() - windowTime);
+        if(ignition) ch1_broadcast.down2 = 10;
+
+        STDOUT.Broadcast(1, &ch1_broadcast, sizeof(ch1_broadcast));        
+  #endif // X_BROADCAST   
+
+  return false;
+
+  }
 
 
 
-// Detect double tap
-void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
+  #define TAP_ACCTH     userProfile.tapSensitivity.threshold      // acceleration threshold to consider it a clash
+  #define TAP_CLASHDBT  60     // clash debounce time: time to ignore acceleration after triggering a clash [ms]
+  // #define TAP_MINTIME   userProfile.tapSensitivity.minTime    // minimum time between clashes to call them taps [ms]
+  #define TAP_MINTIME   SHAKE_MAX_PER+1    // minimum time between clashes to call them taps [ms]
+  #define TAP_MAXTIME   userProfile.tapSensitivity.maxTime    // maximum time between clashes to call them taps [ms]
+  #define TAP_QUIETTIME 500    // minimum time between successive double-taps [ms]
+
+
+
+// Detect  nTaps taps
+void DetectTaps(uint8_t nTaps)  {  // Got acceleration resultant from DoAccel()
   static bool clash=false;      // true if acceleration went over the thresold
   // static uint32_t lastChecked=0;// last time when detection was executed (once @ 10 ms)
   static int32_t lastClash=0;   // negative: time when we started ignoring clashes;  non-negative: time when last clash was detected
@@ -1371,15 +1001,15 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     static bool Detected2Tap = false;
   #endif
 
-  acc = fusor.accel().len2();   // len squared (no need for sqrt)
+  float acc = fusor.accel().len2();   // len squared (no need for sqrt)
   // 0. Ignore if needed
   uint32_t timeNow = millis();
   // uint32_t dT = timeNow-lastChecked;   // time since last valid clash
   // if (dT < 2) return;
   // lastChecked = timeNow;
 
-  if (lastClash<0) {  // ignore DTAP_QUIETTIME [ms], since -lastClash
-    if (timeNow+lastClash > DTAP_QUIETTIME) {
+  if (lastClash<0) {  // ignore TAP_QUIETTIME [ms], since -lastClash
+    if (timeNow+lastClash > TAP_QUIETTIME) {
         lastClash = 0; // stop ignoring
         #if defined(X_BROADCAST) && defined(BROADCAST_2TAP)
             Detected2Tap = false;   // broadcast end of ignore time
@@ -1389,28 +1019,28 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
   else {
     // 1. Detect clashes  
      uint32_t dT = timeNow-lastClash;   // time since last valid clash
-    if (acc>DTAP_ACCTH) { // over thresold
+    if (acc>TAP_ACCTH) { // over thresold
       if (!clash) { // clash event!
           clash=true;
           // 2. Discriminate between clashed and taps
-          if (dT>DTAP_QUIETTIME) 
+          if (dT>TAP_QUIETTIME) 
               tapCounter = 1;        // this can only be the first tap, since it came after some long quiet time
-          else if (dT<DTAP_MINTIME) 
+          else if (dT<TAP_MINTIME) 
                   tapCounter = 3;     // clashes are too fast, forget about it! Need QUIETTIME silence to resume tap detection
-               else if (dT<DTAP_MAXTIME)   // valid tap, keep counting!
+               else if (dT<TAP_MAXTIME)   // valid tap, keep counting!
                   tapCounter++;              
           lastClash = timeNow;
           // STDOUT.println(tapCounter); 
       }
     }
     else { // below threshold
-      if (clash && dT>DTAP_CLASHDBT) 
+      if (clash && dT>TAP_CLASHDBT) 
         clash=false;
     }
 
-    // 3. Decide on double-tap
-    if (timeNow-lastClash > DTAP_CLASHDBT && tapCounter==2) { // double tap!
-          Event(BUTTON_NONE, EVENT_2TAP);   // trigger event
+    // 3. Decide on tap event
+    if (timeNow-lastClash > TAP_CLASHDBT && tapCounter==nTaps) { // enough taps!
+          Event(BUTTON_NONE, EVENT_TAP);   // trigger event
           lastClash = -timeNow;
           #if defined(X_BROADCAST) && defined(BROADCAST_2TAP)
             Detected2Tap = true;  // broadcast double-tap for QUIETTIME [ms]
@@ -1420,22 +1050,8 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       }
 
     // 4. Reset if quiet
-    if (tapCounter && timeNow-lastClash > DTAP_MAXTIME)  tapCounter = 0;  
+    if (tapCounter && timeNow-lastClash > TAP_MAXTIME)  tapCounter = 0;  
 
-    // if (tapCounter)
-    // if ((timeNow-lastClash > DTAP_MAXTIME+1))  {  // quiet for a little more than MAXTIME 
-    //   if (tapCounter==2) { // double tap!
-    //       Event(BUTTON_NONE, EVENT_2TAP);   // trigger event
-    //       lastClash = -timeNow;
-    //       #if defined(X_BROADCAST) && defined(BROADCAST_2TAP)
-    //         Detected2Tap = true;  // broadcast double-tap for QUIETTIME [ms]
-    //       #endif
-    //       STDOUT.println("2xTAP detected! ");     
-    //   }
-    //   tapCounter = 0;     // reset counter, regardless 
-    //   // STDOUT.println(tapCounter); 
-
-    // }
   }  
 
 #if defined(X_BROADCAST) && defined(BROADCAST_2TAP)
@@ -1453,9 +1069,6 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
   #endif // X_BROADCAST   
   }
 
-
-#endif // OSx
-
   bool swinging_ = false;
   // The prop should call this from Loop() if it wants to detect swings as an event.
   void DetectSwing() {
@@ -1468,54 +1081,155 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     }
   }
 
-  void SB_Motion(const Vec3& gyro, bool clear) override {
-    if (monitor.ShouldPrint(Monitoring::MonitorGyro)) {
-      // Got gyro data
-      STDOUT.print("GYRO: ");
-      STDOUT.print(gyro.x);
-      STDOUT.print(", ");
-      STDOUT.print(gyro.y);
-      STDOUT.print(", ");
-      STDOUT.println(gyro.z);
+
+
+
+// #define STAB_TH     userProfile.stabSensitivity.threshold   // stab threshold = minimum XYZ acceleration: 
+// #define STAB_DIR    userProfile.stabSensitivity.dir // 2         // stab directionality = ratio of X and YZ acceleration: 2.0f
+
+// default
+#define STAB_SPEEDTH 1.5f       // speed threshold
+#define STAB_DISTH   0.2f       // distance threshold
+#define STAB_SWINGSPEED  100    // maximum swing speed allowed during stab
+#define SCREW_THETATH  800      // minimum theta peak to consider a detected stab as a screw
+#define SCREW_SWINGSPEED  150   // maximum swing speed allowed during stab
+
+
+void DetectStabs() {
+  static float speedPeak = 0;   // peak slide speed
+
+  float speed = fusor.slideSpeed();
+  float distance = fusor.slideDistance();
+  float swingSpeed = fusor.swing_speed();
+  static enum : int8_t {
+      Off = 0,
+      Stab = 1,
+      Screw = -1
+  } stabEvent = Off;
+
+  if (!speed && !distance) {
+    speedPeak=0;                     // reset peak slide speed if no slide
+    stabEvent = Off;
+  }
+  else if (speed > speedPeak) speedPeak = speed;  // store peak slide speed
+
+  if (speed && !stabEvent) {  // only check stab if speed is non zero, otherwise we would trigger multiple events due to distance retention during post-slide pause
+    if (speedPeak > STAB_SPEEDTH && distance > STAB_DISTH) {  // stab or screw, only on forward slide
+      if (fusor.thetaPeak() >= SCREW_THETATH && swingSpeed < SCREW_SWINGSPEED) {  // screw detected
+        stabEvent = Screw;
+        Event(BUTTON_NONE, EVENT_SCREW); 
+      }
+      else if (swingSpeed < STAB_SWINGSPEED) {  // stab detected
+        stabEvent = Stab;
+        Event(BUTTON_NONE, EVENT_STAB);
+      }      
+      // fusor.UpdateTheta(0);     // reset twist and slide detectors, regardless which (if any) event was generated
+      // fusor.UpdateSlide(0);
     }
   }
+
+  #if defined(X_BROADCAST) && defined(BROADCAST_STAB)
+        struct {
+            int16_t up1=0, up2=0, up3=0;
+            int16_t down1=0, down2=0, down3=0;
+        } ch1_broadcast;
+        ch1_broadcast.up1 = (int16_t)(100*fusor.slideSpeed());
+        ch1_broadcast.up2 = (int16_t)(100*speedPeak);
+        ch1_broadcast.up3 = (int16_t)(100*fusor.slideDistance());
+        ch1_broadcast.down1 = (int16_t)(swingSpeed);                
+        ch1_broadcast.down2 = (int16_t)(fusor.thetaPeak());                        
+        if (stabEvent==Stab) ch1_broadcast.down3 = 1000;
+        if (stabEvent==Screw) ch1_broadcast.down3 = 2000;
+
+
+        STDOUT.Broadcast(1, &ch1_broadcast, sizeof(ch1_broadcast));        
+  #endif // X_BROADCAST   
+}
+
+
+#define DEFLECT_NOISETH  5.0f   // noise threshold
+#define DEFLECT_THRESHOLD 30.0f // threshold for deflect detection
+void DetectDeflect() {
+  
+  static float accResultant = 0;    // resultant acceleration squared (no need for sqrt)
+  static float peakG = 0;           // peak acceleratin resultant, during an event
+  static uint32_t lastTime = 0;     // keep sampling rate constant, otherwise difference is not derivative
+  bool deflectEvent = false;
+
+
+  uint32_t timeNow = millis();
+  if (timeNow - lastTime < 10) return;  // sample rate 100 Hz 
+  lastTime = timeNow;
+
+
+  accResultant = fusor.mss().len();     // current resultant of 3-axes accelerations  
+
+  if (accResultant < DEFLECT_NOISETH) {  // below noise threshold, quiet or end of event
+    if (peakG > DEFLECT_THRESHOLD) {  // that was the end of a deflect 
+      Event(BUTTON_NONE, EVENT_DEFLECT);  // trigger event
+      deflectEvent = true;
+    }
+    peakG = 0;  // reset peak derivative at the end of the event
+  }
+  else { // event in progress
+    if (timeNow - last_clash_ < clash_timeout_) peakG = 0;  //  reset peak if clash is active
+    else if (accResultant > peakG) peakG = accResultant;  // store peak acceleration during event
+  }
+
+
+  #if defined(X_BROADCAST) && defined(BROADCAST_DEFLECT)
+        struct {
+            int16_t up1=0, up2=0, up3=0;
+            int16_t down1=0, down2=0, down3=0;
+        } ch1_broadcast;
+        ch1_broadcast.up1 = (int16_t)(100*accResultant);                
+        ch1_broadcast.up2 = (int16_t)(100*peakG);                                         
+        if (timeNow - last_clash_ < clash_timeout_) ch1_broadcast.down1 = 1;    // clash active
+        if (deflectEvent) ch1_broadcast.down2 = 1;    // deflect event
+
+
+        STDOUT.Broadcast(1, &ch1_broadcast, sizeof(ch1_broadcast));        
+  #endif // X_BROADCAST   
+}
 
   Vec3 accel_;
 
-  void StartOrStopTrack() {
+  // newState = 0, 1 or 255 to toggle
+  void StartOrStopTrack(uint8_t newState = 255) { 
 #ifdef ENABLE_AUDIO
-    if (track_player_) {
+    // stop track
+    if ( newState==0 || ((newState==255 && track_player_)) ) {
+      if (!track_player_) return;  // nothing to stop
       track_player_->Stop();
+      track_player_->CloseFiles();
       track_player_.Free();
-    } else {
+    }  
+    
+    // start track
+    else if ( newState==1 || ((newState==255 && !track_player_)) ) {
       MountSDCard();
       EnableAmplifier();
-      track_player_ = GetFreeWavPlayer();
-      if (track_player_) {
-        #if !defined(OSx) || defined(OLDPROFILE)        
-          track_player_->Play(current_preset_.track.get());
-        #else // OSx
-          track_player_->Play(current_preset_->track);
-        #endif // OSx
-      } else {
-        STDOUT.println("No available WAV players.");
-      }
+      char track[MAX_TRACKLEN];
+      if (tracks.GetString(current_preset_->track_index, track)) {
+        if (!track_player_) track_player_ = GetFreeWavPlayer();
+        if (track_player_) {
+          track_player_->Play(track);
+          tracks.SetCurrent(current_preset_->track_index);
+        } 
+      }      
     }
-#else
-    STDOUT.println("Audio disabled.");
 #endif
   }
 
-#if !defined(OSx) || defined(OLDPROFILE)
-  void ListTracks(const char* dir) {
-    if (!LSFS::Exists(dir)) return;
-    for (LSFS::Iterator i2(dir); i2; ++i2) {
-      if (endswith(".wav", i2.name()) && i2.size() > 200000) {
-          STDOUT << dir << "/" << i2.name() << "\n";
-      }
-    }
+  // Play first ms milliseconds from the track, then fade and stop (by looper)
+  void PlayTrackTag(uint32_t ms=2000) {
+#ifdef ENABLE_AUDIO
+    if(track_player_) track_player_->Stop();  // stop current track, if playing, but don't free it
+    StartOrStopTrack(1);  // start track (will reuse player if exists)
+    millis_to_stop_track_ = millis() + ms;  // set time to stop track
+#endif
   }
-#else 
+
   void ListTracks(const char* dir, FileReader* fileWriter) {
     if (!LSFS::Exists(dir)) return;
     for (LSFS::Iterator i2(dir); i2; ++i2) {
@@ -1531,7 +1245,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       }
     }
   }
-#endif
+
 
   virtual void LowBatteryOff() {
     if (SaberBase::IsOn()) {
@@ -1542,7 +1256,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
   }
 
   virtual void CheckLowBattery() {
-  #ifndef ULTRA_PROFFIE
+  #if defined(PROFFIEBOARD) || ( defined(SABERPROP) && SABERPROP_VERSION == 'P')
     if (battery_monitor.low()) {
       if (current_style() && !current_style()->Charging()) {
         LowBatteryOff();
@@ -1566,86 +1280,40 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     SaberBase::DoAccel(fusor.accel(), clear);
     SaberBase::DoMotion(fusor.gyro(), clear);
 
-    if (monitor.ShouldPrint(Monitoring::MonitorClash)) {
-      STDOUT << "ACCEL: " << fusor.accel() << "\n";
-    }
   }
   volatile bool clash_pending1_ = false;
-#ifndef OSx
-  volatile bool pending_clash_is_stab1_ = false;
-#else // OSx
-  volatile int8_t pending_clash_is_stab1_ = 0;  // -1 = reversed stab
-#endif // OSx
+
+
 
   volatile float pending_clash_strength1_ = 0.0;
 
   uint32_t last_beep_;
   float current_tick_angle_ = 0.0;
+  uint32_t millis_to_stop_track_ = 0;  // if set, track should fade out after this millis()
 
   void Loop() override {
     CallMotion();
     if (clash_pending1_) {
       clash_pending1_ = false;
-      Clash(pending_clash_is_stab1_, pending_clash_strength1_);
+      Clash(pending_clash_strength1_);
     }
     if (clash_pending_ && millis() - last_clash_ >= clash_timeout_) {
       clash_pending_ = false;
-      Clash2(pending_clash_is_stab_, pending_clash_strength_);
+      Clash2(pending_clash_strength_);
     }
     CheckLowBattery();
 #ifdef ENABLE_AUDIO
+    if (millis_to_stop_track_ && track_player_) 
+      if (millis() > millis_to_stop_track_) {
+        track_player_->FadeAndStop();
+        millis_to_stop_track_ = 0;
+      }
     if (track_player_ && !track_player_->isPlaying()) {
       track_player_.Free();
     }
 #endif
 
-#ifndef DISABLE_COLOR_CHANGE
-#define TICK_ANGLE (M_PI * 2 / 12)
-    switch (SaberBase::GetColorChangeMode()) {
-      case SaberBase::COLOR_CHANGE_MODE_NONE:
-        break;
-      case SaberBase::COLOR_CHANGE_MODE_STEPPED: {
-        float a = fusor.angle2() - current_tick_angle_;
-        if (a > M_PI) a-=M_PI*2;
-        if (a < -M_PI) a+=M_PI*2;
-        if (a > TICK_ANGLE * 2/3) {
-          current_tick_angle_ += TICK_ANGLE;
-          if (current_tick_angle_ > M_PI) current_tick_angle_ -= M_PI * 2;
-          STDOUT << "TICK+\n";
-          SaberBase::UpdateVariation(1);
-        }
-        if (a < -TICK_ANGLE * 2/3) {
-          current_tick_angle_ -= TICK_ANGLE;
-          if (current_tick_angle_ < M_PI) current_tick_angle_ += M_PI * 2;
-          STDOUT << "TICK-\n";
-          SaberBase::UpdateVariation(-1);
-        }
-        break;
-      }
-      case SaberBase::COLOR_CHANGE_MODE_ZOOMED: {
-#define ZOOM_ANGLE (M_PI * 2 / 2000)
-        float a = fusor.angle2() - current_tick_angle_;
-        if (a > M_PI) a-=M_PI*2;
-        if (a < -M_PI) a+=M_PI*2;
-        int steps = (int)floor(fabs(a) / ZOOM_ANGLE - 0.3);
-        if (steps < 0) steps = 0;
-        if (a < 0) steps = -steps;
-        current_tick_angle_ += ZOOM_ANGLE * steps;
-        SaberBase::SetVariation(0x7fff & (SaberBase::GetCurrentVariation() + steps));
-        break;
-      }
-      case SaberBase::COLOR_CHANGE_MODE_SMOOTH:
-        float a = fmodf(fusor.angle2() - current_tick_angle_, M_PI * 2);
-        SaberBase::SetVariation(0x7fff & (int32_t)(a * (32768 / (M_PI * 2))));
-        break;
-    }
-    if (monitor.ShouldPrint(Monitoring::MonitorVariation)) {
-      STDOUT << " variation = " << SaberBase::GetCurrentVariation()
-             << " ccmode = " << SaberBase::GetColorChangeMode()
-//           << " color = " << current_config->blade1->current_style()->getColor(0)
-             << "\n";
-    }
-#endif
+
 
 
 #ifdef IDLE_OFF_TIME
@@ -1659,43 +1327,12 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     }
 #endif
 
-    PollSaveColorChange();
   }
 
 #ifdef IDLE_OFF_TIME
   uint32_t last_on_time_;
 #endif
 
-#ifndef DISABLE_COLOR_CHANGE
-  void ToggleColorChangeMode() {
-    if (!current_style()) return;
-    if (SaberBase::GetColorChangeMode() == SaberBase::COLOR_CHANGE_MODE_NONE) {
-      current_tick_angle_ = fusor.angle2();
-      bool handles_color_change = false;
-#define CHECK_SUPPORTS_COLOR_CHANGE(N) \
-      handles_color_change |= current_config->blade##N->current_style() && current_config->blade##N->current_style()->IsHandled(HANDLED_FEATURE_CHANGE_TICKED);
-      ONCEPERBLADE(CHECK_SUPPORTS_COLOR_CHANGE)
-      if (!handles_color_change) {
-        STDOUT << "Entering smooth color change mode.\n";
-        current_tick_angle_ -= SaberBase::GetCurrentVariation() * M_PI * 2 / 32768;
-        current_tick_angle_ = fmodf(current_tick_angle_, M_PI * 2);
-
-        SaberBase::SetColorChangeMode(SaberBase::COLOR_CHANGE_MODE_SMOOTH);
-      } else {
-#ifdef COLOR_CHANGE_DIRECT
-        STDOUT << "Color change, TICK+\n";
-        SaberBase::UpdateVariation(1);
-#else
-        STDOUT << "Entering stepped color change mode.\n";
-        SaberBase::SetColorChangeMode(SaberBase::COLOR_CHANGE_MODE_STEPPED);
-#endif
-      }
-    } else {
-      STDOUT << "Color change mode done, variation = " << SaberBase::GetCurrentVariation() << "\n";
-      SaberBase::SetColorChangeMode(SaberBase::COLOR_CHANGE_MODE_NONE);
-    }
-  }
-#endif // DISABLE_COLOR_CHANGE
 
   virtual void PrintButton(uint32_t b) {
     if (b & BUTTON_POWER) STDOUT.print("Power");
@@ -1725,7 +1362,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       case EVENT_HELD_MEDIUM: STDOUT.print("HeldMedium"); break;
       case EVENT_HELD_LONG: STDOUT.print("HeldLong"); break;
       case EVENT_CLICK_SHORT: STDOUT.print("Shortclick"); break;
-    #ifdef ULTRA_PROFFIE
+    #if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
       case EVENT_CLICK_MEDIUM: STDOUT.print("MEDIUMclick"); break;
     #endif
       case EVENT_CLICK_LONG: STDOUT.print("Longclick"); break;
@@ -1736,7 +1373,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       case EVENT_SWING: STDOUT.print("Swing"); break;
       case EVENT_SHAKE: STDOUT.print("Shake"); break;
       case EVENT_ENDSHAKE: STDOUT.print("End-Shake"); break;
-      case EVENT_2TAP: STDOUT.print("Double Tap"); break;
+      case EVENT_TAP: STDOUT.print("Double Tap"); break;
       case EVENT_TWIST: STDOUT.print("Twist"); break;
       case EVENT_CLASH: STDOUT.print("Clash"); break;
       case EVENT_THRUST: STDOUT.print("Thrust"); break;
@@ -1767,27 +1404,17 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
 
   bool Parse(const char *cmd, const char* arg) override {
 
-    #ifndef OSx
-      if (!strcmp(cmd, "id")) {
-        id();
-        return true;
-      }
-      if (!strcmp(cmd, "scanid")) {
-        FindBladeAgain();
-        return true;
-      }
-    #else // OSx
-      if (!strcmp(cmd, "stealth")) {
-        // stealthMode = !stealthMode;
-        SetStealth(!stealthMode); 
-        return true;
-      }
-      #ifdef X_MENUTEST
-        // parse menu commands as well, if needed
-        if (menu)
-          if (menu->Parse(cmd, arg)) return true;   
-      #endif  // X_MENUTEST  
-    #endif // OSx
+    if (!strcmp(cmd, "stealth")) {
+      // stealthMode = !stealthMode;
+      SetStealth(!stealthMode); 
+      return true;
+    }
+    #ifdef X_MENUTEST
+      // parse menu commands as well, if needed
+      if (menu)
+        if (menu->Parse(cmd, arg)) return true;   
+    #endif  // X_MENUTEST  
+
 
     if (!strcmp(cmd, "on")) {
         On();      
@@ -1802,11 +1429,13 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       return true;
     }
     if (!strcmp(cmd, "clash")) {
-      Clash(false, 10.0);
+      // Clash(10.0);
+      SaberBase::DoClash();
       return true;
     }
     if (!strcmp(cmd, "stab")) {
-      Clash(true, 10.0);
+      // Clash(true, 10.0);
+      SaberBase::DoStab();
       return true;
     }
     if (!strcmp(cmd, "force")) {
@@ -1993,86 +1622,136 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       return true;
     }
 #endif // ENABLE_DIAGNOSE_COMMANDS
-    if (!strcmp(cmd, "n") || (!strcmp(cmd, "next") && arg && (!strcmp(arg, "preset") || !strcmp(arg, "pre")))) {
-      // next_preset();
-      next_preset_fast();
-      return true;
-    }
-    if (!strcmp(cmd, "p") || (!strcmp(cmd, "prev") && arg && (!strcmp(arg, "preset") || !strcmp(arg, "pre")))) {
-      // previous_preset();
-      previous_preset_fast();
-      return true;
-    }
   
-  // no preset editing commands on OSx -> use XML 
-  #if !defined(OSx) || defined(OLDPROFILE)    
-    if (!strcmp(cmd, "rotate")) {
-      rotate_presets();
-      return true;
-    }
-
-    if (!strcmp(cmd, "list_presets")) {
-      CurrentPreset tmp;
-      for (int i = 0; ; i++) {
-        tmp.SetPreset(i);
-        if (tmp.preset_num != i) break;
-        tmp.Print();
+    if (!strcmp(cmd, "n") || (!strcmp(cmd, "next") && arg)) {
+      if (!strcmp(arg, "preset") || !strcmp(arg, "pre")) {
+        next_preset_fast();
+        return true;
       }
+      if (!strcmp(arg, "font")) {
+        SetFont(NEXT_INDEXED);
+        return true;
+      }
+      if (!strcmp(arg, "track")) {
+        SetTrack(NEXT_INDEXED);
+        return true;
+      }        
+    }
+
+    if (!strcmp(cmd, "p") || (!strcmp(cmd, "prev") && arg)) {
+      if (!strcmp(arg, "preset") || !strcmp(arg, "pre")) {
+        previous_preset_fast();
+        return true;
+      }
+      if (!strcmp(arg, "font")) {
+        SetFont(PREV_INDEXED);
+        return true;
+      }
+      if (!strcmp(arg, "track")) {
+        SetTrack(PREV_INDEXED);
+        return true;
+      }      
+    }
+
+    // set_font <fontname>
+    if (!strcmp(cmd, "set_font")) {
+      if(arg) {
+        uint8_t fontIndex = fonts.GetIndex(arg);
+        // if (!fontIndex) {
+        //   ScanSoundFonts(); // font not indexed, rescan
+        //   fontIndex = fonts.GetIndex(arg);  // try again
+        // }
+        if(fontIndex) {
+          SetFont(fontIndex);
+          STDOUT.println("set_font-OK");
+        }          
+        else STDOUT.println("set_font-FAIL"); // font not found even after re-scanning                
+        return true;  // command served
+      }
+    }
+
+
+
+    // set_font <fontname>
+    if (!strcmp(cmd, "scan_fonts")) {
+        ScanSoundFonts(false); // font not indexed, rescan
+        STDOUT.println("scan_fonts-START");
+        list_fonts(NULL, false);  // don't add guards
+        STDOUT.println("scan_fonts-END");
+        return true;  // command served
+    }
+
+    // track - report current state 
+    // track <0/1> - set and report new state 
+    if (!strcmp(cmd, "track")) {
+      if (arg) {
+        if (*arg == '0') StartOrStopTrack(0);
+        else if (*arg == '1') StartOrStopTrack(1);
+      }
+      STDOUT.println("track-START");
+      if (track_player_) STDOUT.println("on");
+      else STDOUT.println("off");
+      STDOUT.println("track-END");      
       return true;
     }
 
-    if (!strcmp(cmd, "set_font") && arg) {
-      current_preset_.font = mkstr(arg);
-      current_preset_.Save();
-      return true;
+    // // tracktag <ms> - play the first <ms> milliseconds of the track (if exists)
+    // if (!strcmp(cmd, "tracktag")) {
+    //   PlayTrackTag(atoi(arg));
+    //   return true;
+    // }
+
+
+ if (!strcmp(cmd, "scan_tracks")) {
+      ScanSoundTracks(false); //rescan
+      STDOUT.println("scan_tracks-START");
+      list_tracks(NULL, false); // don't add guards
+      STDOUT.println("scan_tracks-END");
+      return true;  // command served      
     }
 
-    if (!strcmp(cmd, "set_track") && arg) {
-      current_preset_.track = mkstr(arg);
-      current_preset_.Save();
-      return true;
+
+    // set_track <trackname>
+    if (!strcmp(cmd, "set_track")) {
+      uint8_t trackIndex;
+      if(arg) { // specified track
+        trackIndex = tracks.GetIndex(arg);   // argument should be track name
+        // if (!trackIndex) {
+        //   ScanSoundTracks(); // track not indexed, rescan
+        //   trackIndex = tracks.GetIndex(arg);  // try again
+        // }
+        if(trackIndex) {
+          SetTrack(trackIndex);
+          STDOUT.println("set_track-OK");
+        }          
+        else STDOUT.println("set_track-FAIL"); // track not found even after re-scanning                       
+      }
+      else { // unspecified track, remove any
+        SetTrack(0);
+        STDOUT.println("set_track-OK");
+      }
+         
+      return true;  // command served      
     }
 
-    if (!strcmp(cmd, "set_name") && arg) {
-      current_preset_.name = mkstr(arg);
-      current_preset_.Save();
-      return true;
+
+    if (!strcmp(cmd, "get_preset")) {
+        STDOUT.println("get_preset-START");
+        current_preset_->Print();
+        STDOUT.println("get_preset-END");
+        return true;
+    } 
+
+
+    if (!strcmp(cmd, "save_preset")) {     // save current preset to presets.cod
+        if (current_preset_->Overwrite(PRESETS_FILE))
+          STDOUT.println("save_preset-OK");
+        else
+          STDOUT.println("save_preset-FAIL");
+        return true;
     }
 
-    #define SET_STYLE_CMD(N)                             \
-    if (!strcmp(cmd, "set_style" #N) && arg) {        \
-      current_preset_.current_style##N = mkstr(arg); \
-      current_preset_.Save();                        \
-      return true;                                   \
-    }
-    ONCEPERBLADE(SET_STYLE_CMD)
 
-
-    if (!strcmp(cmd, "move_preset") && arg) {
-      int32_t pos = strtol(arg, NULL, 0);
-      current_preset_.SaveAt(pos);
-      return true;
-    }
-
-    if (!strcmp(cmd, "duplicate_preset") && arg) {
-      int32_t pos = strtol(arg, NULL, 0);
-      current_preset_.preset_num = -1;
-      current_preset_.SaveAt(pos);
-      return true;
-    }
-
-    if (!strcmp(cmd, "delete_preset") && arg) {
-      current_preset_.SaveAt(-1);
-      return true;
-    }
-
-    if (!strcmp(cmd, "show_current_preset")) {
-        current_preset_.Print();
-      return true;
-    }
-
-    
-  #else // OSx
     if (!strcmp(cmd, "list_presets")) {
        list_presets();       
       return true;
@@ -2086,10 +1765,10 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     
     
    #ifdef ENABLE_DIAGNOSE_COMMANDS 
-    if (!strcmp(cmd, "show_current_preset")) {
-        current_preset_->Print();
-      return true;
-    }
+    // if (!strcmp(cmd, "show_current_preset") || !strcmp(cmd, "show_preset")) {
+    //     current_preset_->Print();
+    //   return true;
+    // }
 
     // if (!strcmp(cmd, "reload_presets")) {
     //     STDOUT.Silent(true);
@@ -2114,104 +1793,41 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     }
    #endif // ENABLE_DIAGNOSE_COMMANDS
 
-  #endif // OSx
+  
 
-   
+  
 
-#if defined(DYNAMIC_BLADE_LENGTH) && !defined(OSx) 
-    if (!strcmp(cmd, "get_max_blade_length") && arg) {
-      STDOUT.println(GetMaxBladeLength(atoi(arg)));
-      return true;
-    }
-    if (!strcmp(cmd, "get_blade_length") && arg) {
-      STDOUT.println(GetBladeLength(atoi(arg)));
-      return true;
-    }
-    if (!strcmp(cmd, "set_blade_length") && arg) {
-      SetBladeLength(atoi(arg), atoi(SkipWord(arg)));
-      SaveState(current_preset_.preset_num);
-      // Reload preset to make the change take effect.
-      SetPreset(current_preset_.preset_num, false);
-      return true;
-    }
-#endif
-
-#if defined(DYNAMIC_BLADE_DIMMING) && !defined(OSx) 
-    if (!strcmp(cmd, "get_blade_dimming")) {
-      STDOUT.println(SaberBase::GetCurrentDimming());
-      return true;
-    }
-    if (!strcmp(cmd, "set_blade_dimming") && arg) {
-      SaberBase::SetDimming(atoi(arg));
-      return true;
-    }
-#endif
-
-#if defined(DYNAMIC_CLASH_THRESHOLD) && !defined(OSx) 
-    if (!strcmp(cmd, "get_clash_threshold")) {
-      STDOUT.println(GetCurrentClashThreshold());
-      return true;
-    }
-    if (!strcmp(cmd, "set_clash_threshold") && arg) {
-      SetClashThreshold(parsefloat(arg));
-      return true;
-    }
-#endif    
-
-  #if !defined(OSx) || defined(OLDPROFILE)
-    if (!strcmp(cmd, "get_preset")) {
-      STDOUT.println(current_preset_.preset_num);
-      return true;
-    }
-
-    if (!strcmp(cmd, "get_volume")) {
-    #ifdef ENABLE_AUDIO
-          STDOUT.println(dynamic_mixer.get_volume());
-    #else
-          STDOUT.println(0);
-    #endif
-          return true;
-    }
-
-    if (!strcmp(cmd, "set_volume") && arg) {
-    #ifdef ENABLE_AUDIO
-          int32_t volume = strtol(arg, NULL, 0);
-          if (volume >= 0 && volume <= VOLUME) {
-            dynamic_mixer.set_volume(volume);
-            PollSaveColorChange();
-          }
-    #endif
-          return true;
-    }
-  #else // OSx   
     if (!strcmp(cmd, "get_usersettings")) {            
       bool guarded=false;
       if (arg) {
         guarded = true;
         STDOUT.println("get_usersettings-START");
       }
-      switch(*arg) {
-        case 'V': // get regular volume
-            STDOUT.println(userProfile.combatVolume);  break;            
-        case 'v': // get stealth volume
-            STDOUT.println(userProfile.stealthVolume);  break;
-        case 'B': // get regular brightness
-            STDOUT.println(userProfile.combatBrightness); break;
-        case 'b': // get stealth brightness
-            STDOUT.println(userProfile.stealthBrightness); break;
-        case 's': // get sensitivity
-              // STDOUT.println(userProfile.masterSensitivity); break;
-              STDOUT.println(Sensitivity::master); break;
-        case 'p': // get preset
-            STDOUT.println(userProfile.preset); break;
-        case 0: // get ALL
-            STDOUT.print("  [V] Master volume = "); STDOUT.println(userProfile.combatVolume);
-            STDOUT.print("  [v] Stealth volume = "); STDOUT.println(userProfile.stealthVolume);
-            STDOUT.print("  [B] Master brightness = "); STDOUT.println(userProfile.combatBrightness);
-            STDOUT.print("  [b] Stealth brightness = "); STDOUT.println(userProfile.stealthBrightness);
-            STDOUT.print("  [s] Master sensitivity = "); STDOUT.println(Sensitivity::master); // STDOUT.println(userProfile.masterSensitivity);
-            STDOUT.print("  [p] Preset = "); STDOUT.println(userProfile.preset);
-            break;
+      if(arg) {
+        switch(*arg) {
+          case 'V': // get regular volume
+              STDOUT.println(userProfile.combatVolume);  break;            
+          case 'v': // get stealth volume
+              STDOUT.println(userProfile.stealthVolume);  break;
+          case 'B': // get regular brightness
+              STDOUT.println(userProfile.combatBrightness); break;
+          case 'b': // get stealth brightness
+              STDOUT.println(userProfile.stealthBrightness); break;
+          case 's': // get sensitivity
+                // STDOUT.println(userProfile.masterSensitivity); break;
+                STDOUT.println(Sensitivity::master); break;
+          case 'p': // get preset
+              STDOUT.println(userProfile.preset); break;
+          case 0: // get ALL
+          case 'a':    
+              STDOUT.print("  [V] Master volume = "); STDOUT.println(userProfile.combatVolume);
+              STDOUT.print("  [v] Stealth volume = "); STDOUT.println(userProfile.stealthVolume);
+              STDOUT.print("  [B] Master brightness = "); STDOUT.println(userProfile.combatBrightness);
+              STDOUT.print("  [b] Stealth brightness = "); STDOUT.println(userProfile.stealthBrightness);
+              STDOUT.print("  [s] Master sensitivity = "); STDOUT.println(Sensitivity::master); // STDOUT.println(userProfile.masterSensitivity);
+              STDOUT.print("  [p] Preset = "); STDOUT.println(userProfile.preset);
+              break;
+        }
       }
       if (guarded) STDOUT.println("get_usersettings-END");
       return true;
@@ -2227,7 +1843,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
               if(!stealthMode) {  // apply volume if currently in use
                 userProfile.masterVolume = numVal;
                 dynamic_mixer.set_volume(VOLUME);
-                #ifdef ULTRA_PROFFIE
+                #if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
                 if (!userProfile.masterVolume) {
                   SilentEnableAmplifier(false);
                   SilentEnableBooster(false);
@@ -2246,7 +1862,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
               if(stealthMode) {  // apply volume if currently in use
                 userProfile.masterVolume = numVal;
                 dynamic_mixer.set_volume(VOLUME);
-                #ifdef ULTRA_PROFFIE
+                #if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
                 if (!userProfile.masterVolume) {
                   SilentEnableAmplifier(false);
                   SilentEnableBooster(false);
@@ -2302,7 +1918,8 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
             STDOUT.println(userProfile.twistSensitivity.userSetting);  break;
         case 'm':   // get menu sensitivity
             STDOUT.println(userProfile.menuSensitivity.userSetting);  break;
-        case 0: // get ALL     
+        case 0: // get ALL
+        case 'a':     
           STDOUT.print("  MASTER = "); STDOUT.println(Sensitivity::master);
           STDOUT.print("  [s] Swing = "); STDOUT.print(userProfile.swingSensitivity.userSetting); STDOUT.print(", rescaled by master to "); STDOUT.println(userProfile.swingSensitivity.ApplyMaster());
           STDOUT.print("  [c] Clash = "); STDOUT.print(userProfile.clashSensitivity.userSetting); STDOUT.print(", rescaled by master to "); STDOUT.println(userProfile.clashSensitivity.ApplyMaster());
@@ -2360,7 +1977,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
               STDOUT.print("Sensitivity set to "); STDOUT.print(userProfile.swingSensitivity.userSetting); STDOUT.print(", rescaled by master to "); STDOUT.println(userProfile.swingSensitivity.ApplyMaster());
               STDOUT.print(" Tap threshold = "); STDOUT.println(userProfile.tapSensitivity.threshold);
               // STDOUT.print(" Tap minTime = "); STDOUT.println(userProfile.tapSensitivity.minTime);
-              STDOUT.print(" Tap minTime = "); STDOUT.println(DTAP_MINTIME);
+              STDOUT.print(" Tap minTime = "); STDOUT.println(TAP_MINTIME);
               STDOUT.print(" Tap maxTime = "); STDOUT.println(userProfile.tapSensitivity.maxTime);
               return true; 
           case 'w':   // set twist sensitivity
@@ -2400,117 +2017,59 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
 
 
     if (!strcmp(cmd, "get_color")) {
+      #ifndef REPORT_RGB
         STDOUT.println("get_color-START");
-        STDOUT.println(current_preset_->variation);
+      #endif
+        if(current_preset_)
+        #ifdef REPORT_RGB
+          STDOUT.print(currentR); STDOUT.print(", "); STDOUT.print(currentG); STDOUT.print(", "); STDOUT.println(currentB);
+        #else
+          STDOUT.println(current_preset_->variation);
+        #endif
+      #ifndef REPORT_RGB
         STDOUT.println("get_color-END");
+      #endif
         return true;
     }
+
+    #ifdef REPORT_RGB
+      if (!strcmp(cmd, "test_colorvariation")) {
+        Color16 testColor(65535,0,0);
+        for (uint16_t variation=0; variation<32768; variation+=328) {
+            // testColor.rotate(rotationLUT.Get(variation), desatLUT.Get(variation));  // rotate and desaturate color
+            SaberBase::SetVariation(variation, true);
+            testColor.rotate(SaberBase::GetCurrentRotation(), SaberBase::GetCurrentDesaturation());
+            STDOUT.print(variation); STDOUT.print(", "); STDOUT.print(currentR>>8); STDOUT.print(", "); 
+            STDOUT.print(currentG>>8); STDOUT.print(", "); STDOUT.println(currentB>>8);
+            // STDOUT.print("Rotated with "); STDOUT.print(rotationLUT.Get(variation)); STDOUT.print(" and desaturated with "); STDOUT.println(desatLUT.Get(variation));
+        }
+        // testColor.rotate(32765);  // last point
+        SaberBase::SetVariation(32767, true);
+        testColor.rotate(SaberBase::GetCurrentRotation(), SaberBase::GetCurrentDesaturation());
+        STDOUT.print("32767, "); STDOUT.print(currentR>>8); STDOUT.print(", "); 
+        STDOUT.print(currentG>>8); STDOUT.print(", "); STDOUT.println(currentB>>8);      
+        return true;
+      }
+    #endif
+
 
     if (!strcmp(cmd, "set_color")) {
         if (arg) {  // set color variation
           size_t variation = strtol(arg, NULL, 0);
           current_preset_->variation = variation;
-          SaberBase::SetVariation(variation);
+          SaberBase::SetVariation(variation, true);
         }
         return true;
     }
 
    
 
-#endif // OSx
+
       
 
 
-#ifndef OSx
-    if (!strcmp(cmd, "mute")) {
-      SetMute(true);
-      return true;
-    }
-    if (!strcmp(cmd, "unmute")) {
-      SetMute(false);
-      return true;
-    }
-    if (!strcmp(cmd, "toggle_mute")) {
-      if (!SetMute(true)) SetMute(false);
-      return true;
-    }
-#endif
 
-  #if !defined(OSx) || defined(OLDPROFILE)
-    if (!strcmp(cmd, "set_preset") && arg) {
-      int preset = strtol(arg, NULL, 0);
-      SetPreset(preset, true);
-      return true;
-    }
-
-    if (!strcmp(cmd, "change_preset") && arg) {
-      int preset = strtol(arg, NULL, 0);
-      if (preset != current_preset_.preset_num) {
-        SetPreset(preset, true);
-      }
-      return true;
-    }
-     
-     #ifndef DISABLE_COLOR_CHANGE
-          if (arg && (!strcmp(cmd, "var") || !strcmp(cmd, "variation"))) {
-            size_t variation = strtol(arg, NULL, 0);
-            SaberBase::SetVariation(variation);
-            return true;
-          }
-
-          if (!strcmp(cmd, "ccmode")) {
-            ToggleColorChangeMode();
-            return true;
-          }
-    #endif
-
-#ifdef ENABLE_SD
-    if (!strcmp(cmd, "list_tracks")) {
-      // Tracks are must be in: tracks/*.wav or */tracks/*.wav
-      LOCK_SD(true);
-      ListTracks("tracks");
-      for (LSFS::Iterator iter("/"); iter; ++iter) {
-        if (iter.isdir()) {
-          PathHelper path(iter.name(), "tracks");
-          ListTracks(path);
-        }
-      }
-      LOCK_SD(false);
-      return true;
-    }
-
-    if (!strcmp(cmd, "list_fonts")) {
-      LOCK_SD(true);
-      for (LSFS::Iterator iter("/"); iter; ++iter) {
-        if (iter.isdir()) {
-          char fname[128];
-          strcpy(fname, iter.name());
-          strcat(fname, "/");
-          char* fend = fname + strlen(fname);
-          bool isfont = false;
-          if (!isfont) {
-            strcpy(fend, "hum.wav");
-            isfont = LSFS::Exists(fname);
-          }
-          if (!isfont) {
-            strcpy(fend, "hum01.wav");
-            isfont = LSFS::Exists(fname);
-          }
-          if (!isfont) {
-            strcpy(fend, "hum");
-            isfont = LSFS::Exists(fname);
-          }
-          if (isfont) {
-            STDOUT.println(iter.name());
-          }
-        }
-      }
-      LOCK_SD(false);
-      return true;
-    }
-#endif
-
-  #else // OSx     
+  
     if (!strcmp(cmd, "list_styles")) {
       list_styles(NULL);
       return true;
@@ -2526,13 +2085,12 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       return true;
     }  
 
-  #endif // OSx
+
 
   return false;
 
   }
 
-  #if defined(OSx) && !defined(OLDPROFILE)
   void list_styles(FileReader* fileWriter)
   {   
       if(fileWriter)LOCK_SD(true);
@@ -2560,67 +2118,74 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       if(fileWriter)LOCK_SD(false);
   }
 
-  void list_fonts(FileReader* fileWriter)
+  void list_fonts(FileReader* fileWriter, bool guarded = true)
   {
-      LOCK_SD(true);
-      if(fileWriter)fileWriter->Write("list_fonts-START\n");
-      else STDOUT.println("list_fonts-START");
-
-      for (LSFS::Iterator iter("/"); iter; ++iter) {
-        if (iter.isdir()) {
-          char fname[128];
-          strcpy(fname, iter.name());
-          strcat(fname, "/");
-          char* fend = fname + strlen(fname);
-          bool isfont = false;
-          if (!isfont) {
-            strcpy(fend, "hum.wav");
-            isfont = LSFS::Exists(fname);
-          }
-          if (!isfont) {
-            strcpy(fend, "hum01.wav");
-            isfont = LSFS::Exists(fname);
-          }
-          if (!isfont) {
-            strcpy(fend, "hum1.wav");
-            isfont = LSFS::Exists(fname);
-          }
-          if (isfont) {
-             if(fileWriter){fileWriter->Write(iter.name()); fileWriter->Write("\n");} 
-             else STDOUT.println(iter.name());
-          }
-        }
+      if(fileWriter)LOCK_SD(true);
+      if (guarded) {
+        if(fileWriter)fileWriter->Write("list_fonts-START\n");
+        else STDOUT.println("list_fonts-START");
       }
-      if(fileWriter)fileWriter->Write("list_fonts-END\n");
-      else STDOUT.println("list_fonts-END");
-      LOCK_SD(false);
+      if (fonts.count) {    // fonts should have been scanned by now
+        uint8_t currentIndex =  fonts.GetCurrentIndex();   // store current font, we're gonnna read font names sequentially for faster access        
+        fonts.SetCurrent(fonts.count);                    // set last font as current, so 'Next' will be the first font in list
+        char fontname[MAX_FONTLEN];
+        size_t len;
+        for (uint8_t i=1; i<=fonts.count; i++) {
+            fonts.GetNext(fontname);    // set next font as current and get its name
+            if(fileWriter) { fileWriter->Write(fontname); fileWriter->Write("\n"); }
+            else STDOUT.println(fontname);
+        }
+
+        fonts.SetCurrent(currentIndex);     // restore current font
+      }
+      
+      if (guarded) {
+        if(fileWriter)fileWriter->Write("list_fonts-END\n");
+        else STDOUT.println("list_fonts-END");
+      }
+      if(fileWriter)LOCK_SD(false);
+
 
   }
 
 
 
-  void list_tracks(FileReader* fileWriter)
+  void list_tracks(FileReader* fileWriter=0, bool guarded = true)
   {
       // Tracks are must be in: tracks/*.wav or */tracks/*.wav
-      LOCK_SD(true);
-      if(fileWriter)fileWriter->Write("list_tracks-START\n");
-      else STDOUT.println("list_tracks-START");
-      ListTracks("tracks", fileWriter);
-      for (LSFS::Iterator iter("/"); iter; ++iter) {
-        if (iter.isdir()) {
-          PathHelper path(iter.name(), "tracks");
-          ListTracks(path, fileWriter);
-        }
+      if(fileWriter)LOCK_SD(true);
+      if (guarded) {
+        if(fileWriter)fileWriter->Write("list_tracks-START\n");
+        else STDOUT.println("list_tracks-START");
       }
-      if(fileWriter)fileWriter->Write("list_tracks-END\n");
-      else STDOUT.println("list_tracks-END");
-      LOCK_SD(false);
+      
+      if (tracks.count) {    // tracks should have been scanned by now
+        uint8_t currentIndex =  tracks.GetCurrentIndex();   // store current track, we're gonnna read track names sequentially for faster access        
+        tracks.SetCurrent(tracks.count);                    // set last track as current, so 'Next' will be the first  in list
+        char trackname[MAX_TRACKLEN];
+        size_t len;
+        for (uint8_t i=1; i<=tracks.count; i++) {
+            tracks.GetNext(trackname);    // set next track as current and get its name
+            if(fileWriter) { fileWriter->Write(trackname); fileWriter->Write("\n"); }
+            else STDOUT.println(trackname);
+        }
+
+        tracks.SetCurrent(currentIndex);     // restore current track
+      
+      }
+
+      if (guarded) {
+        if(fileWriter)fileWriter->Write("list_tracks-END\n");
+        else STDOUT.println("list_tracks-END");
+      }
+      if(fileWriter)LOCK_SD(false);
+
   }
 
 
 void list_presets(FileReader* fileWriter = 0) {
      if (fileWriter) {  // write on SD Card
-        LOCK_SD(true);
+      if(fileWriter)LOCK_SD(true);
         fileWriter->Write("list_presets-START\n"); 
         if (presets.size()) {
           char buffer[10];
@@ -2633,7 +2198,7 @@ void list_presets(FileReader* fileWriter = 0) {
           }
         }
         fileWriter->Write("list_presets-END\n");
-        LOCK_SD(false);
+      if(fileWriter)LOCK_SD(false);
      }
      else { // write to serial
         STDOUT.println("list_presets-START"); 
@@ -2687,11 +2252,11 @@ void list_profile(FileReader* fileWriter = 0) {
      }      
 }
 
-  #endif
+  
 
  void Help() override {
-    #if defined(COMMANDS_HELP) || !defined(OSx)
-        #if defined(OSx) && defined(X_MENUTEST)
+    #if defined(COMMANDS_HELP) 
+        #if defined(X_MENUTEST)
           // parse menu commands as well, if needed
           if (menu) menu->Help();
         #endif
@@ -2714,31 +2279,6 @@ void list_profile(FileReader* fileWriter = 0) {
     #endif
   }
 
-#ifndef OSx
-virtual bool Event(enum BUTTON button, EVENT event) {
-    PrintEvent(button, event);
-
-    switch (event) {
-      case EVENT_RELEASED:
-        clash_pending_ = false;
-      case EVENT_PRESSED:
-        IgnoreClash(50); // ignore clashes to prevent buttons from causing clashes
-      default:
-        break;
-    }
-
-    if (Event2(button, event, current_modifiers | (IsOn() ? MODE_ON : MODE_OFF))) {
-      current_modifiers = 0;
-      return true;
-    }
-    if (Event2(button, event,  MODE_ANY_BUTTON | (IsOn() ? MODE_ON : MODE_OFF))) {
-      // Not matching modifiers, so no need to clear them.
-      current_modifiers &= ~button;
-      return true;
-    }
-    return false;
-  }
-#else // OSx
 
 
 bool PassEventToProp(enum BUTTON button, EVENT event) {
@@ -2776,8 +2316,8 @@ virtual bool Event(enum BUTTON button, EVENT event) {
         break;
     }
 
-    // if (menu) return menu->Event(button, event);   // redirect event to xMenu, if assigned to prop
-    if (menu)   // redirect event to xMenu, if assigned to prop
+    // if (menu) return menu->Event(button, event);   // redirect event to TTMenu, if assigned to prop
+    if (menu)   // redirect event to TTMenu, if assigned to prop
       if (menu->IsActive())
         if (menu->Event(button, event)) // release events to prop if the menu did not want them
             return true;   
@@ -2786,7 +2326,7 @@ virtual bool Event(enum BUTTON button, EVENT event) {
   }
 
 
-#endif // OSx
+
 
   
 
@@ -2798,15 +2338,13 @@ protected: // was private:
     if (current_style() && current_style()->NoOnOff())
       return false;
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
+#if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
     RequestPower();     // get power for CPU
     EnableMotion();
 #endif
 
     activated_ = millis();
-    #ifndef OSx
-      STDOUT.println("Ignition.");
-    #endif
+    // STDOUT.println("Ignition.");
     MountSDCard();
     EnableAmplifier();
     SaberBase::RequestMotion();
@@ -2818,16 +2356,11 @@ protected: // was private:
   }
 
 public: // was protected
-  #if !defined(OSx) || defined(OLDPROFILE)
-    CurrentPreset current_preset_;
-  #else // OSx
-    xPreset* current_preset_;
-    volatile float accResultant = 0;
+    Preset* current_preset_;
     bool stealthMode = false, setStealth = false;
   
     virtual void SetStealth(bool newStealthMode, uint8_t announce = true) {}
 
-  #endif
   LoopCounter accel_loop_counter_;
 };
 

@@ -9,7 +9,7 @@
 // TRANSITION: TRANSITION
 // MILLIS: a number
 // return value: TRANSITION
-// Runs the specified triansition, then holds the
+// Runs the specified transition, then holds the
 // last value for some additional time specified by
 // MILLIS_FUNCTION.
 template<class MILLIS, class TRANSITION>
@@ -23,7 +23,6 @@ public:
     }
     millis_.run(blade);
     if (extending_) {
-      millis_.run(blade);
       millis_.update(0);
     }
   }

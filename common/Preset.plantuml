@@ -1,0 +1,51 @@
+@startuml StringVector
+
+class StringVector {
+    -stringMem : char* ' Contiguous memory block containing all strings
+    -current : char* ' Current position in the memory block - for iterative access
+    -size : size_t ' Size of the memory block
+    +count : uint8_t {readOnly} ' Number of strings in the vector
+
+    +StringVector() ' Constructor
+    +Clear() : void ' Clear the string vector
+    +Assign(data : char*, dataSize : size_t) : uint8_t ' Assigns a contiguous memory block to the vector
+    +GetString(index : uint8_t, dest : char*) : uint8_t ' Get the string specified by index
+    +GetIndex(string : char*) : uint8_t ' Returns the 1-based index of a specified string 
+    +GetCurrent(dest : char*) : uint8_t ' Get the current string
+    +GetCurrentIndex() : uint8_t ' Returns the 1-based index of the current string
+    +GetNext(dest : char*) : uint8_t ' Set next string as current and copy it to destination
+    +GetPrev(dest : char*) : uint8_t ' Set previous string as current and copy it to destination
+    +SetCurrent(index : uint8_t) : bool ' Set the current string by index
+    +SetCurrent(string : char*) : bool ' Set the current string by name
+}
+
+object "fonts, tracks" as stringobjects {
+    // Public list of sound fonts
+    // Public list of sound tracks
+}
+
+StringVector -- stringobjects :  <
+
+
+class Preset {
+    -id : uint16_t ' Unique identifier for the preset
+    -name : char[16] ' Name of the preset
+    -font_index : uint8_t ' 1-based index in fonts, 0 if no font assigned
+    -track_index : uint8_t ' 1-based index in tracks, 0 if no track assigned
+    -variation : uint32_t ' Variation identifier 
+    -bladeStyle : StyleDescriptor*[] ' Array of pointers to blade styles
+
+    +Preset() ' Default constructor
+    +Preset(id_ : uint16_t) ' Constructor with ID
+    +Read(filename : char*, ID : uint16_t) : bool ' Read preset from .COD file
+    +FastRead(file : CodReader*, ID : uint16_t) : bool ' Read preset with an already open file
+    +Overwrite(filename : char*) : bool ' Overwrite preset data in .COD file
+    +AssignStylesToBlades(presetData : presetData_t*) : bool ' Assign styles to blades based on preset data
+    +CheckSounds() : bool ' Check if the assigned sounds are valid
+    +Print() : void ' Print preset details
+}
+
+ Preset "2" -->  stringobjects : <uses>
+
+
+@enduml

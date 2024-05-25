@@ -187,11 +187,23 @@ static int8_t color16_dither_matrix[4][4] = {
   {   43, -25,   26, -42 },
 };
 
-class Color16 {
-  public:
-  constexpr Color16() : r(0), g(0), b(0) {}
-  constexpr Color16(const Color8& c) : r(c.r * 0x101), g(c.g * 0x101), b(c.b * 0x101) {}
-  constexpr Color16(uint16_t r_, uint16_t g_, uint16_t b_) : r(r_), g(g_), b(b_) {}
+class Color16 { 
+public:
+ constexpr Color16() : r(0), g(0), b(0) {}
+ Color16(const Color8& c) : r(c.r * 0x101), g(c.g * 0x101), b(c.b * 0x101) {
+    #ifdef REPORT_RGB      
+      currentR = r;
+      currentG = g;
+      currentB = b;
+    #endif
+  }    
+ Color16(uint16_t r_, uint16_t g_, uint16_t b_) : r(r_), g(g_), b(b_) {
+    #ifdef REPORT_RGB      
+      currentR = r_;
+      currentG = g_;
+      currentB = b_;
+    #endif
+  }  
   // x = 0..256
   Color16 mix(const Color16& other, int x) const {
     // Wonder if there is an instruction for this?
@@ -278,31 +290,141 @@ private:
     return MAX - C * clampi32(std::min(k, 65536 - k), 0, 16384) / 16384;
   }
 
+
 public:
-  // angle = 0 - 98304 (32768 * 3) (non-inclusive)
-  Color16 rotate(int angle) const {
-    int H;
+
+
+
+#ifdef REPORT_RGB
+  void SetCurrentRGB(uint16_t r, uint16_t g, uint16_t b) {
+    // STDOUT.print("SetCurrentRGB "); STDOUT.print(r); STDOUT.print(" "); STDOUT.print(g); STDOUT.print(" "); STDOUT.println(b);
+    currentR = r;
+    currentG = g;
+    currentB = b;
+  }
+#endif
+
+
+   // Rotate the HUE of the color and optionally desaturate it.
+   // angle = 0 - 32765 (inclusive). Not exactly 32768 due to integer math.
+  // saturationOffset = 0 - 255 (inclusive). 0 = no change, 255 = pure white.
+   Color16 rotate(int angle, uint8_t saturationOffset = 0)  {
     if (!angle) return *this;
     int MAX = std::max(r, std::max(g, b));
     int MIN = std::min(r, std::min(g, b));
     int C = MAX - MIN;
-    if (C == 0) return *this;  // Can't rotate something without color.
-    // Note 16384 = 60 degrees.
-    if (r == MAX) {
-      // r is biggest
-      H = 16384 * (g - b) / C;
-    } else if (g == MAX) {
-      // g is biggest
-      H = 16384 * (b - r) / C + 16384 * 2;
-    } else {
-      // b is biggest
-      H = 16384 * (r - g) / C + 16384 * 4;
+    if (C == 0) {  // Can't rotate something without color.
+      #ifdef REPORT_RGB
+        SetCurrentRGB(r, g, b);
+      #endif
+      return *this;  
     }
+
+    int H;
+    if (r == MAX) {
+        H = 5461 * (g - b) / C;
+    } else if (g == MAX) {
+        H = 5461 * (b - r) / C + 10922;
+    } else {
+        H = 5461 * (r - g) / C + 21844;
+    }
+
+    // Adjusting H by the scaled angle
     H += angle;
-    return Color16(f(5*16384+H, C, MAX),
-                   f(3*16384+H, C, MAX),
-                   f(1*16384+H, C, MAX));
-  }
+    // Correctly wrapping H around the 32768 boundary
+    H %= 32766;
+
+    
+    // Convert H back to RGB
+    int segment = H / 5461;
+    int segmentOffset = H % 5461;
+    int delta = segmentOffset * C / 5461;
+
+
+    // Calculate the new RGB values based on the hue rotation
+    int rotR = MIN, rotG = MIN, rotB = MIN; // Initialize to MIN for the default case
+    switch (segment) {
+        case 0: rotR = MAX; rotG = MIN + delta; break;
+        case 1: rotG = MAX; rotR = MAX - delta; break;
+        case 2: rotG = MAX; rotB = MIN + delta; break;
+        case 3: rotB = MAX; rotG = MAX - delta; break;
+        case 4: rotB = MAX; rotR = MIN + delta; break;
+        case 5: rotR = MAX; rotB = MAX - delta; break;
+        // No default case needed as segment is always [0,5] after modulo operation
+    }
+
+    // // Ensure the new RGB values are within the 0-65535 range
+    rotR = clampitoui16(rotR);
+    rotG = clampitoui16(rotG);
+    rotB = clampitoui16(rotB);
+
+    // Desaturate the color if needed
+    if (!saturationOffset || !C) {
+      #ifdef REPORT_RGB
+        SetCurrentRGB(rotR, rotG, rotB);
+      #endif
+      return Color16(rotR, rotG, rotB);    // no desaturation requested or already desaturated
+    }
+    // uint32_t originalSaturation = (C * 255) / MAX;  // original saturation in the range 1-255
+    // // Subtract saturationOffset from the original saturation, clamping to 0
+    // uint32_t newSaturation = originalSaturation > saturationOffset ? originalSaturation - saturationOffset : 0;
+
+    // // Calculate the factor to apply to each color component, in fixed-point arithmetic
+    // uint32_t factor = (newSaturation << 16) / originalSaturation; // Fixed-point representation of newSaturation/originalSaturation
+    // // Apply the new saturation to the rotated color
+    // uint16_t desatR = (r == MAX) ? rotR : std::min(static_cast<uint32_t>((rotR * factor) >> 16), static_cast<uint32_t>(65535));
+    // uint16_t desatG = (rotG == MAX) ? rotG : std::min(static_cast<uint32_t>((rotG * factor) >> 16), static_cast<uint32_t>(65535));
+    // uint16_t desatB = (rotB == MAX) ? rotB : std::min(static_cast<uint32_t>((rotB * factor) >> 16), static_cast<uint32_t>(65535));
+
+    // #ifdef REPORT_RGB
+    //   SetCurrentRGB(desatR, desatG, desatB);
+    // #endif
+    // return Color16(desatR, desatG, desatB);       
+
+
+    // Adjust the smallest of rotR, rotG, rotB by saturationOffset
+    uint16_t minRot = std::min({rotR, rotG, rotB});
+    uint32_t addValue = static_cast<uint32_t>(saturationOffset) * 257; // Scale saturationOffset to 0-65535 range
+    if (minRot == rotR) rotR = std::min(rotR + addValue, static_cast<uint32_t>(65535));
+    if (minRot == rotG) rotG = std::min(rotG + addValue, static_cast<uint32_t>(65535));
+    if (minRot == rotB) rotB = std::min(rotB + addValue, static_cast<uint32_t>(65535));
+
+    #ifdef REPORT_RGB
+      SetCurrentRGB(rotR, rotG, rotB);
+    #endif
+    return Color16(rotR, rotG, rotB);    
+
+}
+
+
+
+
+  // // angle = 0 - 98304 (32768 * 3) (non-inclusive)
+  // Color16 rotate(int angle) const {
+  //   // STDOUT.print("!");
+  //   int H;
+  //   if (!angle) return *this;
+  //   int MAX = std::max(r, std::max(g, b));
+  //   int MIN = std::min(r, std::min(g, b));
+  //   int C = MAX - MIN;
+  //   if (C == 0) return *this;  // Can't rotate something without color.
+  //   // Note 16384 = 60 degrees.
+  //   if (r == MAX) {
+  //     // r is biggest
+  //     H = 16384 * (g - b) / C;
+  //   } else if (g == MAX) {
+  //     // g is biggest
+  //     H = 16384 * (b - r) / C + 16384 * 2;
+  //   } else {
+  //     // b is biggest
+  //     H = 16384 * (r - g) / C + 16384 * 4;
+  //   }
+  //   H += angle;
+    
+  //   return Color16(f(5*16384+H, C, MAX),
+  //                  f(3*16384+H, C, MAX),
+  //                  f(1*16384+H, C, MAX));
+  // }
 
   HSL toHSL() const {
     int MAX = std::max(r, std::max(g, b));
@@ -554,13 +676,13 @@ DISAMBIGUATE_MIXCOLORS1(SimpleColor, RGBA_um_nod, RGBA_nod)
 // Paint over operators
 // There is probably a better way to do this.
 inline SimpleColor operator<<(const SimpleColor& base, const RGBA_um_nod& over) {
-  SCOPED_PROFILER();
+  
   if (!over.alpha) return base;
   return SimpleColor((base.c * (32768 - over.alpha) + over.c * over.alpha) >> 15);
 }
 
 inline OverDriveColor operator<<(const OverDriveColor& base, const RGBA_um& over) {
-  SCOPED_PROFILER();
+  
   if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return OverDriveColor((base.c * ac + over.c * over.alpha) >> 15,
@@ -568,13 +690,13 @@ inline OverDriveColor operator<<(const OverDriveColor& base, const RGBA_um& over
 }
 
 inline SimpleColor operator<<(const SimpleColor& base, const RGBA_nod& over) {
-  SCOPED_PROFILER();
+  
   if (!over.alpha) return base;
   return (base.c * (32768 - over.alpha) >> 15) + over.c;
 }
 
 inline OverDriveColor operator<<(const OverDriveColor& base, const RGBA& over) {
-  SCOPED_PROFILER();
+  
   if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return OverDriveColor((base.c * ac >> 15) + over.c,
@@ -582,7 +704,7 @@ inline OverDriveColor operator<<(const OverDriveColor& base, const RGBA& over) {
 }
 
 inline RGBA_nod operator<<(const RGBA_um_nod& base, const RGBA_um_nod& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA_nod((base.c * (base.alpha * ac >> 15) + over.c * over.alpha) >> 15,
@@ -590,7 +712,7 @@ inline RGBA_nod operator<<(const RGBA_um_nod& base, const RGBA_um_nod& over) {
 }
 
 inline RGBA operator<<(const RGBA_um& base, const RGBA_um& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA((base.c * (base.alpha * ac >> 15) + over.c * over.alpha) >> 15,
@@ -599,7 +721,7 @@ inline RGBA operator<<(const RGBA_um& base, const RGBA_um& over) {
 }
 
 inline RGBA_nod operator<<(const RGBA_um_nod& base, const RGBA_nod& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA_nod((base.c * (base.alpha * ac >> 15) >> 15) + over.c,
@@ -607,7 +729,7 @@ inline RGBA_nod operator<<(const RGBA_um_nod& base, const RGBA_nod& over) {
 }
 
 inline RGBA operator<<(const RGBA_um& base, const RGBA& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA((base.c * (base.alpha * ac >> 15) >> 15) + over.c,
@@ -616,7 +738,7 @@ inline RGBA operator<<(const RGBA_um& base, const RGBA& over) {
 }
 
 inline RGBA_nod operator<<(const RGBA_nod& base, const RGBA_um_nod& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA_nod((base.c * ac + over.c * over.alpha) >> 15,
@@ -624,7 +746,7 @@ inline RGBA_nod operator<<(const RGBA_nod& base, const RGBA_um_nod& over) {
 }
 
 inline RGBA operator<<(const RGBA& base, const RGBA_um& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA((base.c * ac + over.c * over.alpha) >> 15,
@@ -633,7 +755,7 @@ inline RGBA operator<<(const RGBA& base, const RGBA_um& over) {
 }
 
 inline RGBA_nod operator<<(const RGBA_nod& base, const RGBA_nod& over) {
-    SCOPED_PROFILER();
+    
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA_nod((base.c * ac >> 15) + over.c,
@@ -641,7 +763,7 @@ inline RGBA_nod operator<<(const RGBA_nod& base, const RGBA_nod& over) {
 }
 
 inline RGBA operator<<(const RGBA& base, const RGBA& over) {
-    SCOPED_PROFILER();
+    
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA((base.c * ac >> 15) + over.c,

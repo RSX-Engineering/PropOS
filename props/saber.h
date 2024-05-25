@@ -66,23 +66,7 @@ public:
         On();
         return true;
 
-#ifdef BLADE_DETECT_PIN
-      case EVENTID(BUTTON_BLADE_DETECT, EVENT_LATCH_ON, MODE_ANY_BUTTON | MODE_ON):
-      case EVENTID(BUTTON_BLADE_DETECT, EVENT_LATCH_ON, MODE_ANY_BUTTON | MODE_OFF):
-        // Might need to do something cleaner, but let's try this for now.
-        blade_detected_ = true;
-        FindBladeAgain();
-        SaberBase::DoBladeDetect(true);
-        return true;
 
-      case EVENTID(BUTTON_BLADE_DETECT, EVENT_LATCH_OFF, MODE_ANY_BUTTON | MODE_ON):
-      case EVENTID(BUTTON_BLADE_DETECT, EVENT_LATCH_OFF, MODE_ANY_BUTTON | MODE_OFF):
-        // Might need to do something cleaner, but let's try this for now.
-        blade_detected_ = false;
-        FindBladeAgain();
-        SaberBase::DoBladeDetect(false);
-        return true;
-#endif
 
       case EVENTID(BUTTON_AUX, EVENT_CLICK_SHORT, MODE_OFF):
 #ifdef DUAL_POWER_BUTTONS
@@ -120,14 +104,6 @@ public:
 #define NEED_DETECT_TWIST
       case EVENTID(BUTTON_NONE, EVENT_TWIST, MODE_ON):
 #endif
-#ifndef DISABLE_COLOR_CHANGE
-        if (SaberBase::GetColorChangeMode() != SaberBase::COLOR_CHANGE_MODE_NONE) {
-          // Just exit color change mode.
-          // Don't turn saber off.
-          ToggleColorChangeMode();
-          return true;
-        }
-#endif
         Off();
         return true;
 
@@ -141,17 +117,6 @@ public:
         // TODO: Make blast only appear on one blade!
         SaberBase::DoBlast();
         return true;
-
-#ifndef DISABLE_COLOR_CHANGE
-#if NUM_BUTTONS == 1
-#undef NEED_DETECT_TWIST
-#define NEED_DETECT_TWIST
-      case EVENTID(BUTTON_NONE, EVENT_TWIST, MODE_ON | BUTTON_POWER):
-#endif
-      case EVENTID(BUTTON_POWER, EVENT_CLICK_SHORT, MODE_ON | BUTTON_AUX):
-        ToggleColorChangeMode();
-        return true;
-#endif
 
         // Lockup
       case EVENTID(BUTTON_NONE, EVENT_CLASH, MODE_ON | BUTTON_POWER):

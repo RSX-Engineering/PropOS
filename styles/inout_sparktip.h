@@ -31,7 +31,7 @@ private:
   OFF_COLOR off_color_;
 public:
   auto getColor(int led) -> decltype(MixColors(off_color_.getColor(0), MixColors(spark_color_.getColor(0), base_.getColor(0), 1, 8), 1, 8)) {
-    SCOPED_PROFILER();
+    
     decltype(getColor(0)) ret = base_.getColor(led);
     if (on_) {
       auto spark = spark_color_.getColor(led);

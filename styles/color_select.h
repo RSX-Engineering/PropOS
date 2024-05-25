@@ -48,7 +48,7 @@ private:
   PONUA MixHelper<COLORS...> colors_;
 public:
   auto getColor(int led) -> decltype(transition_.getColor(colors_.getColor(selection_, led), colors_.getColor(selection_, led), led)) {
-//    SCOPED_PROFILER();
+//    
     auto ret = colors_.getColor(selection_, led);
     if (selection_ != old_selection_) {
       auto old = colors_.getColor(old_selection_, led);

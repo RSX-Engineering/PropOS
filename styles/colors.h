@@ -62,8 +62,6 @@ typedef Rgb<255, 31, 15> Tomato;
 typedef Rgb<255, 255, 255> White;
 typedef Rgb<255, 255, 0> Yellow;
 
-#ifdef OSx  // redefine in caps, for consistency
-    typedef Orange ORANGE;
+typedef Orange ORANGE;
 
-#endif // OSx
 #endif

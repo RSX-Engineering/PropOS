@@ -1,7 +1,6 @@
 #ifndef STYLES_BLADE_STYLE_H
 #define STYLES_BLADE_STYLE_H
 
-#ifdef OSx
  enum StyleHeart {          // what's a style good for:
     _4nothing = 0,           //
     _4analog = 0b1,          // flag a style is good for analog blades
@@ -9,7 +8,7 @@
     _4charging = 0b100,      // flag a style is good for charging
     _4button = 0b1000        // flag a style is good for button LEDs
  };
-#endif // OSx
+
 
 class BladeBase;
 
@@ -52,13 +51,8 @@ public:
 template<class STYLE>
 class StyleFactoryImpl : public StyleFactory {
   BladeStyle* make() override {
-    #ifndef OSx
-       STDERR << "Style RAM = " << sizeof(STYLE) << "\n";
-    #else
-    TRACE(PROP, "StyleFactoryImpl.make");
       // STDOUT.print(", RAM=");
       // STDOUT.println(sizeof(STYLE));
-    #endif
     return new STYLE();
   }
 };

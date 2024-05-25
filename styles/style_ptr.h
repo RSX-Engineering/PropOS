@@ -34,46 +34,29 @@ public:
   virtual RetType getColor2(int i) = 0;
   OverDriveColor getColor(int i) override { return getColor2(i); }
 
-  template<bool ROTATE>
-  void runloop2(BladeBase* blade) {
-    int num_leds = blade->num_leds();
-    int rotation = (SaberBase::GetCurrentVariation() & 0x7fff) * 3;
-    for (int i = 0; i < num_leds; i++) {
-      RetType c = getColor2(i);
-      if (ROTATE) c.c = c.c.rotate(rotation);
-      #if defined(OSx) && !defined(OLDPROFILE)
-          // scale with masterBrightness [0, 65535]
-          uint32_t tmp = c.c.r * userProfile.masterBrightness;
-          c.c.r = tmp >> 16;
-          tmp = c.c.g * userProfile.masterBrightness;
-          c.c.g = tmp >> 16;
-          tmp = c.c.b * userProfile.masterBrightness;
-          c.c.b = tmp >> 16;
-      #endif // OSx
-
-      if (c.getOverdrive()) {
-         blade->set_overdrive(i, c.c);
-      } else {
-#ifdef DYNAMIC_BLADE_DIMMING
-	c.c.r = clampi32((c.c.r * SaberBase::GetCurrentDimming()) >> 14, 0, 65535);
-	c.c.g = clampi32((c.c.g * SaberBase::GetCurrentDimming()) >> 14, 0, 65535);
-	c.c.b = clampi32((c.c.b * SaberBase::GetCurrentDimming()) >> 14, 0, 65535);
-#endif
-	blade->set(i, c.c);
-      }
-      if (!(i & 0xf)) Looper::DoHFLoop();
-    }
-  }
 
   void runloop(BladeBase* blade) {
-    bool rotate = !IsHandled(HANDLED_FEATURE_CHANGE) &&
-      blade->get_byteorder() != Color8::NONE &&
-      (SaberBase::GetCurrentVariation() & 0x7fff) != 0;
-    if (rotate) {
-      runloop2<true>(blade);
-    } else {
-      runloop2<false>(blade);
+
+    int num_leds = blade->num_leds();
+    // int rotation = (SaberBase::GetCurrentVariation() & 0x7fff) * 3;
+    int rotation = (SaberBase::GetCurrentVariation() & 0x7fff); // 0-32767
+    for (int i = 0; i < num_leds; i++) {
+      RetType c = getColor2(i);
+      // c.c = c.c.rotate(rotation);
+      c.c = c.c.rotate(SaberBase::GetCurrentRotation(), SaberBase::GetCurrentDesaturation());
+
+      // scale with masterBrightness [0, 65535]
+      uint32_t tmp = c.c.r * userProfile.masterBrightness;
+      c.c.r = tmp >> 16;
+      tmp = c.c.g * userProfile.masterBrightness;
+      c.c.g = tmp >> 16;
+      tmp = c.c.b * userProfile.masterBrightness;
+      c.c.b = tmp >> 16;
+      // Apply color
+      if (c.getOverdrive()) blade->set_overdrive(i, c.c);
+      else  blade->set(i, c.c);      
     }
+
   }
 };
 
@@ -105,5 +88,5 @@ StyleAllocator StylePtr() {
   return &factory;
 };
 
-
+  
 #endif

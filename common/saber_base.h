@@ -4,13 +4,13 @@
 #include "linked_list.h"
 #include "vec3.h"
   
-#ifdef OSx
+
 #include "battery_monitor.h"
-  #ifdef ULTRA_PROFFIE
-    void EnableMotion();    // defined in ProffieOS.ino
-    void DisableMotion();
-  #endif
-#endif 
+#if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
+  void EnableMotion();    // defined in ProffieOS.ino
+  void DisableMotion();
+#endif
+
 // SaberBase is our main class for distributing saber-related events, such
 // as on/off/clash/etc. to where they need to go. Each SABERFUN below
 // has a corresponding SaberBase::Do* function which invokes that function
@@ -31,6 +31,8 @@ extern SaberBase* saberbases;
     DEFINE_EFFECT(FORCE)			\
     DEFINE_EFFECT(STAB)				\
     DEFINE_EFFECT(BOOT)				\
+    DEFINE_EFFECT(CONNECT)        \
+    DEFINE_EFFECT(DISCONNECT)       \
     DEFINE_EFFECT(LOCKUP_BEGIN)			\
     DEFINE_EFFECT(LOCKUP_END)			\
     DEFINE_EFFECT(DRAG_BEGIN)			\
@@ -44,7 +46,32 @@ extern SaberBase* saberbases;
     DEFINE_EFFECT(LOW_BATTERY)			\
     DEFINE_EFFECT(POWERSAVE)                    \
     DEFINE_EFFECT(BATTERY_LEVEL)                \
+    DEFINE_EFFECT(VOLUME_LEVEL)                 \
+    /* Allows style to turn blade ON for interactive effects if prop/style support, FAST_ON skips PREON. */          \
+    DEFINE_EFFECT(ON)                           \
     DEFINE_EFFECT(FAST_ON)                      \
+    DEFINE_EFFECT(QUOTE)			\
+    DEFINE_EFFECT(SECONDARY_IGNITION)		\
+    DEFINE_EFFECT(SECONDARY_RETRACTION)		\
+    /* Allows style to turn blade OFF for interactive effects if prop/style support, FAST_OFF skips POSTOFF. */          \
+    DEFINE_EFFECT(OFF)                          \
+    DEFINE_EFFECT(FAST_OFF)                     \
+    DEFINE_EFFECT(OFF_CLASH)                    \
+    DEFINE_EFFECT(NEXT_QUOTE)                   \
+    DEFINE_EFFECT(INTERACTIVE_PREON)            \
+    /* Triggers a Blaster sound to interact with and creates an EFFECT_BLAST if prop/style support. */          \
+    DEFINE_EFFECT(INTERACTIVE_BLAST)            \
+    DEFINE_EFFECT(TRACK)			\
+    DEFINE_EFFECT(BEGIN_BATTLE_MODE)            \
+    DEFINE_EFFECT(END_BATTLE_MODE)              \
+    DEFINE_EFFECT(BEGIN_AUTO_BLAST)             \
+    DEFINE_EFFECT(END_AUTO_BLAST)               \
+    /* Triggers the change for sets of sounds within the font from one alternative to another. */                \
+    DEFINE_EFFECT(ALT_SOUND)			\
+    /* Triggers an optional sound effect during transitions from within a style via TrDoEffect. */         \
+    DEFINE_EFFECT(TRANSITION_SOUND)		\
+    /* Toggles an optonal sound effect loop ON/OFF from within a style via TrDoEffect. */          \
+    DEFINE_EFFECT(SOUND_LOOP)                   \
     /* Blaster effects */                       \
     DEFINE_EFFECT(STUN)				\
     DEFINE_EFFECT(FIRE)				\
@@ -64,7 +91,15 @@ extern SaberBase* saberbases;
     DEFINE_EFFECT(USER2)			\
     DEFINE_EFFECT(USER3)			\
     DEFINE_EFFECT(USER4)			\
-    DEFINE_EFFECT(USER5)
+    DEFINE_EFFECT(USER5)			\
+    DEFINE_EFFECT(USER6)			\
+    DEFINE_EFFECT(USER7)			\
+    DEFINE_EFFECT(USER8)                        \
+    /* ERRORS */                                \
+    DEFINE_EFFECT(SD_CARD_NOT_FOUND)            \
+    DEFINE_EFFECT(ERROR_IN_FONT_DIRECTORY)      \
+    DEFINE_EFFECT(ERROR_IN_BLADE_ARRAY)         \
+    DEFINE_EFFECT(FONT_DIRECTORY_NOT_FOUND)     \
 
 
 #define DEFINE_EFFECT(X) EFFECT_##X,
@@ -113,37 +148,29 @@ protected:
 public:
   enum OffType {
     OFF_NORMAL,
+    OFF_FAST,
     OFF_BLAST,
     OFF_IDLE,
     OFF_CANCEL_PREON,
-    #ifdef OSx
-      SILENT_OFF,
-    #endif
+    SILENT_OFF,
   };
 
   static bool IsOn() { return on_; }
-  #ifndef OSx
-    static void TurnOn() {
-      on_ = true;
-      SaberBase::DoOn();
-    }
-  #else // OSx
-    static void TurnOn(bool silent=false) {
-      on_ = true;
-      battery_monitor.SetLoad(true);
-      if (silent) SaberBase::DoSilentOn();
-      else SaberBase::DoOn();
-    }
-  #endif // OSx
+  static void TurnOn(bool silent=false) {
+    on_ = true;
+    battery_monitor.SetLoad(true);
+    if (silent) SaberBase::DoSilentOn();
+    else SaberBase::DoOn();
+  }
+
 
   static void TurnOff(OffType off_type) {
     on_ = false;
-    #ifdef OSx
-      battery_monitor.SetLoad(false);
-    #else // nOSx
-      if !defined(ULTRA_PROFFIE)
-        last_motion_request_ = millis();
-    #endif // OSx   
+#if defined(PROFFIEBOARD) || ( defined(SABERPROP) && SABERPROP_VERSION == 'P')
+    last_motion_request_ = millis();
+#endif
+
+    battery_monitor.SetLoad(false);
     SaberBase::DoOff(off_type);
   }
 
@@ -151,32 +178,23 @@ public:
     #if NUM_BUTTONS == 0
         return true;
     #else // NUM_BUTTONS
-      #if defined(ULTRA_PROFFIE) && defined(OSx)
+      #if defined(PROFFIEBOARD) || ( defined(SABERPROP) && SABERPROP_VERSION == 'P')
+        return IsOn() || (millis() - last_motion_request_) < 60000;
+      #else // UltraProffie Zero & Lite
           return true;
-      #else // nULTRA_PROFFIE
-        return IsOn() || (millis() - last_motion_request_) < X_MOTION_TIMEOUT;
-      #endif // ULTRA_PROFFIE
+      #endif
     #endif // NUM_BUTTONS
   }
 
   static void RequestMotion()  {
-    #if !defined(ULTRA_PROFFIE) || !defined(OSx)
+    #if defined(PROFFIEBOARD) || ( defined(SABERPROP) && SABERPROP_VERSION == 'P')
     last_motion_request_ = millis();
     #endif
   }
 
 
-  // #ifdef OSX_ENABLE_MTP
-  // static void TimeoutRequestMotion() {
-  //   #ifdef ULTRA_PROFFIE
-  //     gyroscope->enabled = false;
-  //   #else
-  //     last_motion_request_ = 0;
-  //   #endif
-  // }
-  // #endif
   static void DumpMotionRequest() {
-    #if !defined(ULTRA_PROFFIE) || !defined(OSx) 
+    #if defined(PROFFIEBOARD) || ( defined(SABERPROP) && SABERPROP_VERSION == 'P') 
     STDOUT << "Motion requested: " << MotionRequested()
 	   << " (millis() - last_motion_request=" << (millis() - last_motion_request_)
 	   << ")\n";
@@ -246,14 +264,26 @@ public:                                                         \
   
   SABERBASEFUNCTIONS();
 
+  static void DoEffect(EffectType e, float location, int N) {
+    sound_length = 0.0;
+    sound_number = N;
+    CHECK_LL(SaberBase, saberbases, next_saber_);
+    for (SaberBase *p = saberbases; p; p = p->next_saber_) {
+      p->SB_Effect(e, location);
+    }
+    for (SaberBase *p = saberbases; p; p = p->next_saber_) {
+      p->SB_Effect2(e, location);
+    }
+    CHECK_LL(SaberBase, saberbases, next_saber_);
+  }
   static void DoEffectR(EffectType e) { DoEffect(e, (200 + random(700))/1000.0f); }
   static void DoBlast() { DoEffectR(EFFECT_BLAST); }
   static void DoForce() { DoEffectR(EFFECT_FORCE); }
   static void DoBoot() { DoEffect(EFFECT_BOOT, 0); }
+  static void DoConnect() { DoEffect(EFFECT_CONNECT, 0); }
+  static void DoDisconnect(){ DoEffect(EFFECT_DISCONNECT, 0); }
   static void DoPreOn() { DoEffect(EFFECT_PREON, 0); }
-  #ifdef OSx
-    static void DoSilentOn() { DoEffect(EFFECT_NONE, 0); }
-  #endif
+  static void DoSilentOn() { DoEffect(EFFECT_NONE, 0); }
   static void DoBeginLockup() { DoEffectR(EFFECT_LOCKUP_BEGIN); }
   static void DoEndLockup() { DoEffect(EFFECT_LOCKUP_END, 0); }
   static void DoChange() { DoEffect(EFFECT_CHANGE, 0); }
@@ -261,9 +291,7 @@ public:                                                         \
   static void DoLowBatt() { DoEffect(EFFECT_LOW_BATTERY, 0); }
 
   static float clash_strength_;
-#ifdef OSx
   static bool monoFont;      // if true don't announce font labels in the preset menu
-#endif
 
   // Note, the full clash strength might not be known
   // at the time that the EFFECT_CLASH event is emitted.
@@ -319,55 +347,129 @@ public:                                                         \
   }
   virtual void SB_Accel(const Vec3& gyro, bool clear) {}
 
+
+  static void CalculateRotation(uint16_t variation) {
+      // Define the points for interpolation
+      const uint16_t points[][2] = {
+          {0, 0},
+          {10922, 10922},
+          {13653, 16383},
+          {20023, 16383},
+          {22754, 21844},
+          {32767, 32767}
+      };
+      const int num_points = sizeof(points) / sizeof(points[0]);
+
+      // Handle edge cases
+      if (variation >= points[num_points - 1][0]) {
+       current_rotation_ = 32765;
+        // STDOUT.println(current_rotation_); 
+        return;
+      }
+
+      // Find the segment where the variation falls
+      for (int i = 0; i < num_points - 1; ++i) {
+          if (variation >= points[i][0] && variation < points[i + 1][0]) {
+              // Perform linear interpolation
+              int x0 = points[i][0];
+              int y0 = points[i][1];
+              int x1 = points[i + 1][0];
+              int y1 = points[i + 1][1];
+
+              // Calculate the slope of the segment
+              float slope = (float)(y1 - y0) / (x1 - x0);
+              // Calculate the rotation
+              current_rotation_ = y0 + slope * (variation - x0);
+              if (current_rotation_ > 32765) current_rotation_ = 32765; // compensate rounding integer error @ Color16.rotate()
+          }
+      }
+              // STDOUT.println(current_rotation_); 
+
+  }
+
+  static void CalculateDesaturation(uint16_t variation) {
+      // Define the points for interpolation
+      const uint16_t points[][2] = {
+          {0, 0},
+          {13653, 0},
+          {18203, 255},
+          {20023, 0},
+          {32767, 0}
+      };
+      const int num_points = sizeof(points) / sizeof(points[0]);
+
+      // Handle edge cases
+      if (variation >= points[num_points - 1][0]) {
+        current_desaturation_ = points[num_points - 1][1];
+        // STDOUT.println(current_desaturation_); 
+        return;
+      }
+
+      // Find the segment where the variation falls
+      for (int i = 0; i < num_points - 1; ++i) {
+          if (variation >= points[i][0] && variation < points[i + 1][0]) {
+              // Perform linear interpolation
+              int x0 = points[i][0];
+              int y0 = points[i][1];
+              int x1 = points[i + 1][0];
+              int y1 = points[i + 1][1];
+
+              // Calculate the slope of the segment
+              float slope = (float)(y1 - y0) / (x1 - x0);
+              // Calculate the rotation
+              current_desaturation_ = y0 + slope * (variation - x0);
+              // STDOUT.println(current_desaturation_); 
+          }
+      }
+
+  }
+
+  static uint32_t GetCurrentRotation() {
+    return current_rotation_;
+  }
+
+  static uint32_t GetCurrentDesaturation() {
+    return current_desaturation_;
+  }
+
   static uint32_t GetCurrentVariation() {
     return current_variation_;
   }
-
-  // For step-wise updates
-  static void UpdateVariation(int delta) {
-    current_variation_ += delta;
-    DoChange(CHANGE_COLOR);
-  }
   // For smooth updates or restore.
-  static void SetVariation(uint32_t v) {
+  // static void SetVariation(uint32_t v) {
+    // IncludeWhite = false -> just rotate the hue (as called by styles)
+    // IncludeWhite = true -> rotate the hue and desaturate the color (as called by prop)
+  static void SetVariation(uint32_t v, bool IncludeWhite=false) {
     current_variation_ = v;
     // STDOUT.print("[SaberBase.SetVariation] Set "); STDOUT.println(current_variation_);
 
-  }
-
-#ifdef DYNAMIC_BLADE_DIMMING
-  static int dimming_;
-  static int GetCurrentDimming() { return dimming_; }
-  static void SetDimming(int dimming) { dimming_ = dimming; }
-#endif  
-
-  enum ColorChangeMode {
-    COLOR_CHANGE_MODE_NONE,
-    COLOR_CHANGE_MODE_STEPPED,
-    COLOR_CHANGE_MODE_SMOOTH,
-    COLOR_CHANGE_MODE_ZOOMED,
-  };
-
-  static ColorChangeMode GetColorChangeMode() { return color_change_mode_; }
-  static void SetColorChangeMode(ColorChangeMode  mode) {
-    ColorChangeMode prev_mode = color_change_mode_;
-    color_change_mode_ = mode;
-    if (mode == COLOR_CHANGE_MODE_NONE) {
-      DoChange(EXIT_COLOR_CHANGE);
-    } else if (prev_mode == COLOR_CHANGE_MODE_NONE) {
-      DoChange(ENTER_COLOR_CHANGE);
+    if (IncludeWhite) {
+        CalculateRotation(v);
+        CalculateDesaturation(v);
+        // STDOUT.print("Rotation("); STDOUT.print(v); STDOUT.print(") = "); STDOUT.println(current_rotation_);
+        // STDOUT.print("Desaturation("); STDOUT.print(v); STDOUT.print(") = "); STDOUT.println(current_desaturation_);
     }
+    else {  // 
+      current_rotation_ = v;
+      if (current_rotation_ > 32765) current_rotation_ = 32767;
+      current_desaturation_ = 0;
+    }
+
   }
+
+
 
   // Not private for debugging purposes only.
-  #if !defined(ULTRA_PROFFIE) || !defined(OSx) 
+  #if defined(PROFFIEBOARD) || ( defined(SABERPROP) && SABERPROP_VERSION == 'P')
     static uint32_t last_motion_request_;
   #endif
 private:
   static bool on_;
   static LockupType lockup_;
   static uint32_t current_variation_;
-  static ColorChangeMode color_change_mode_;
+  static uint16_t current_rotation_;
+  static uint16_t current_desaturation_;
+
   SaberBase* next_saber_;
 
 };

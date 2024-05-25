@@ -9,7 +9,6 @@
 #ifndef STYLE_LIB__H
 #define STYLE_LIB__H
 
-#ifdef OSx
 
 #include <vector>
 #include "style_ptr.h"
@@ -69,7 +68,7 @@ vector<StyleDescriptor> styles {
 		GOOD4(StyleHeart::_4analog) },
   
 		
-    #ifdef BOARDTYPE_ZERO
+	#if defined(SABERPROP) && SABERPROP_VERSION == 'Z'
     // AudioShimmer II  for analog (in-hilt LED) blades
         {   StylePtr<InOutHelper<Layers<AudioFlicker<Rgb<255,0,0>,Rgb<127,0,0>>,
       SimpleClashL<Sequence<White,LightPink,20,4,0b1010100000000000>,200,EFFECT_CLASH,Int<0>>,
@@ -146,7 +145,7 @@ vector<StyleDescriptor> styles {
 		GOOD4(StyleHeart::_4pixel) },
 
   // The rest won't fit with both diagnose and developer ON   
-#if !defined(ENABLE_DEVELOPER_MODE) || !defined(PF_STATUS_REPORT_ON)
+#if !defined(ENABLE_DEVELOPER_MODE) || !defined(ENABLE_DIAGNOSE_MODE)
        
 	// Audio Flicker By Fett263
 	{   StylePtr<Layers<AudioFlicker<RotateColorsX<Variation,Rgb<100,100,150>>,RotateColorsX<Variation,Rgb<50,50,75>>>,LockupTrL<Layers<AlphaL<AudioFlickerL<Rgb<255,240,80>>,Bump<Sin<Int<10>,Int<10000>,Int<20000>>>>,AlphaL<LemonChiffon,Bump<Sin<Int<10>,Int<10000>,Int<20000>>>>>,TrConcat<TrInstant,AlphaL<TransitionEffect<Rgb<255,180,50>,LemonChiffon,TrInstant,TrFade<200>,EFFECT_LOCKUP_BEGIN>,Bump<Sin<Int<10>,Int<10000>,Int<20000>>,Int<20000>>>,TrFade<400>>,TrConcat<TrInstant,AlphaL<Mix<SmoothStep<Sin<Int<10>,Int<10000>,Int<20000>>,Int<1000>>,Stripes<1500,2000,TransitionEffect<Moccasin,Rgb<255,150,0>,TrInstant,TrFade<200>,EFFECT_LOCKUP_BEGIN>,Rgb<100,100,150>>,Stripes<1500,-2500,TransitionEffect<Moccasin,Rgb<255,150,0>,TrInstant,TrFade<200>,EFFECT_LOCKUP_BEGIN>,Rgb<100,100,150>>>,Int<18000>>,TrFade<400>>,SaberBase::LOCKUP_NORMAL>,ResponsiveLightningBlockL<Strobe<White,AudioFlicker<White,Blue>,50,1>,TrConcat<TrInstant,AlphaL<White,Bump<Int<12000>,Int<18000>>>,TrFade<200>>,TrConcat<TrInstant,HumpFlickerL<AlphaL<White,Int<16000>>,30>,TrSmoothFade<600>>>,ResponsiveStabL<Red,TrWipeIn<600>,TrWipe<600>>,ResponsiveBlastL<Blue,Int<400>,Scale<SwingSpeed<200>,Int<100>,Int<400>>,Int<400>>,LocalizedClashL<CYAN>,LockupTrL<AlphaL<BrownNoiseFlickerL<White,Int<300>>,SmoothStep<Int<30000>,Int<5000>>>,TrWipeIn<400>,TrFade<300>,SaberBase::LOCKUP_DRAG>,LockupTrL<AlphaL<Mix<TwistAngle<>,Red,Orange>,SmoothStep<Int<28000>,Int<5000>>>,TrWipeIn<600>,TrFade<300>,SaberBase::LOCKUP_MELT>,InOutTrL<TrWipe<300>,TrWipeIn<500>,Black>>>(),
@@ -206,6 +205,6 @@ StyleDescriptor* GetDefaultStyle(StyleHeart good4_) {
     return 0;
 }
 
-#endif // OSx 
+
 
 #endif  // STYLE_LIB__H

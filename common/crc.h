@@ -1,7 +1,7 @@
 #ifndef STM32L4xx_HAL_CRC_PERSO_H
 #define STM32L4xx_HAL_CRC_PERSO_H
 
-#if !defined(ULTRA_PROFFIE) && defined(PROFFIEBOARD_VERSION) //&& defined(OSx) 
+#ifdef PROFFIEBOARD
 
     #include <stdio.h>
     #include "stm32l4xx.h"

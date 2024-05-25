@@ -18,87 +18,55 @@
  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-
-
-// ProffieOSx Fork by RSX Engineering. Licensed under GPL v3 as above.
-// *******************************************************************
-// #define OSx    // This compilation switch activates the OSx alterations of ProffieOS. 
-                  // Normally controlled by Arduino's board menu, under 'Operating Sytem'.
-                  // ProffieOSx requires the board package 'UltraProffie Line'; to install it, add
-                  // https://ultraproffie.com/package_ultraproffie_index.json in Board Manager.
-#define CONFIG_FILE "config/osx_config.h"
+// **************************************************************************
+// *   ProffieOSxs Fork by RSX Engineering. Licensed under GPL v3 as above.  *
+// **************************************************************************
 
 
 
-/*-----------------------------------------------------------------*\
-|  You can have multiple configuration files, and specify which one |
-|  to use here by removing the two slashes at the beginning.        |
-|  **NOTE** Only ONE line should be left uncommented at a time!     |
-|  Add the slashes to any that you are not using.                   |
-\*-----------------------------------------------------------------*/
-// #define CONFIG_FILE "config/YOUR_CONFIG_FILE_NAME_HERE.h"
-// #define CONFIG_FILE "config/default_v3_config.h"
-// #define CONFIG_FILE "config/crossguard_config.h"
-// #define CONFIG_FILE "config/graflex_v1_config.h"
-// #define CONFIG_FILE "config/prop_shield_fastled_v1_config.h"
-// #define CONFIG_FILE "config/owk_v2_config.h"
-// #define CONFIG_FILE "config/test_bench_config.h"
-// #define CONFIG_FILE "config/toy_saber_config.h"
-// #define CONFIG_FILE "config/proffieboard_v1_test_bench_config.h"
-// #define CONFIG_FILE "config/td_proffieboard_config.h"
-// #define CONFIG_FILE "config/proffieboard_v1_graflex.h"
-// #define CONFIG_FILE "config/teensy_audio_shield_micom.h"
-// #define CONFIG_FILE "config/proffieboard_v2_ob4.h"
-// #define CONFIG_FILE "config/testconfig.h"
-// #endif
+#ifdef PROFFIEBOARD_VERSION
+    #define PROFFIEBOARD
+    #pragma message "  ProffieBoard "     
+#else 
+    #define SABERPROP
+    #ifdef PROFFIE_ESP
+        #define SABERPROP_VERSION 'P'    
+        #pragma message  "  SaberProp ESP "
+        #define WIFI_ENABLED_ESP32
+        // #define ENABLE_LOGG_WAVE_OUTPUT
+        // #undef interrupts()
+        // #undef noInterrupts()
+        // #define interrupts()
+        // #define noInterrupts()
+    #elif defined(SABERPROP_LITE)
+        #define SABERPROP_VERSION 'S'
+        #pragma message  " SaberProp Lite "
+    #else 
+      #if HW_LETTER4 == 4
+        #define SABERPROP_VERSION 'L'
+        #pragma message  "  UltraProffie Lite "              
+      #else
+        #define SABERPROP_VERSION 'Z'
+        #pragma message "  UltraProffie Zero " 
+      #endif 
+    #endif // PROFFIE_ESP
+#endif // PROFFIEBOARD_VERSION
 
-#ifdef CONFIG_FILE_TEST
-#undef CONFIG_FILE
-#define CONFIG_FILE CONFIG_FILE_TEST
-#endif
 
-#ifndef CONFIG_FILE
-#error Please set CONFIG_FILE as shown above.
-#endif
+/* TODO: refactor hardware switches in board package (and remove defines above):
+    * ProffieBoard v2: PROFFIEBOARD, PROFFIEBOARD_VERSION = 2
+    * ProffieBoard v3: PROFFIEBOARD, PROFFIEBOARD_VERSION = 3
+    * UltraProffie Zero: SABERPROP, SABERPROP_VERSION = 'Z'
+    * UltraProffie Lite: SABERPROP, SABERPROP_VERSION = 'L'
+    * SaberProp: SABERPROP, SABERPROP_VERSION = 'P'
+    * SaberProp Lite: SABERPROP, SABERPROP_VERSION = 'S'
+*/
 
-#ifndef ULTRA_PROFFIE
+#define CONFIG_FILE "config/board_config.h"
 
-  #ifdef OSx
-    // #define OLDINSTALL
-    // #define OLDPROFILE
-  #endif
-
-  #define CONFIG_TOP
-  #include CONFIG_FILE
-  #undef CONFIG_TOP
-#else
-  #ifdef OSx
-    // #define OLDINSTALL
-    // #define OLDPROFILE
-  #endif
-  #define CONFIG_TOP
-  #include "config/board_config.h"
-  #undef CONFIG_TOP
-#endif
-
-#ifdef SAVE_STATE
-#define SAVE_VOLUME
-#define SAVE_PRESET
-#define SAVE_COLOR_CHANGE
-#define SAVE_DYNAMIC_DIMMING
-#endif
-
-#ifdef ENABLE_ALL_EDIT_OPTIONS
-#define DYNAMIC_BLADE_LENGTH
-#define DYNAMIC_BLADE_DIMMING
-#define DYNAMIC_CLASH_THRESHOLD
-#define SAVE_VOLUME
-#define SAVE_BLADE_DIMMING
-#define SAVE_CLASH_THRESHOLD
-#define SAVE_COLOR_CHANGE
-#endif
-
-// #define ENABLE_DEBUG
+#define CONFIG_TOP
+#include CONFIG_FILE
+#undef CONFIG_TOP
 
 
 //
@@ -165,34 +133,36 @@
 //    better clash
 // Allow several blades to share power pins.
 
-// If defined, DAC vref will be 3 volts, resulting in louder sound. (teensy only)
-#define LOUD
 
 // You can get better SD card performance by
 // activating the  USE_TEENSY3_OPTIMIZED_CODE define
 // in SD.h in the teensy library, however, my sd card
 // did not work with that define.
 
-#if !defined(ULTRA_PROFFIE) && defined(PROFFIEBOARD_VERSION)
+
+#ifdef PROFFIEBOARD
   #include "common/crc.h"
 #endif
 
-#include <Arduino.h>
-
-#ifdef TEENSYDUINO
-#include <DMAChannel.h>
-#include <usb_dev.h>
-
-#ifndef USE_TEENSY4
-#include <kinetis.h>
+#if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_STM32U5)   // ESP architecture
+  #include "common/espSTCRC.h"
 #endif
 
-#include <i2c_t3.h>
-#include <SD.h>
-#include <SPI.h>
+#include <Arduino.h>
+// #define ESP_HWDCD_ENABLED
 
-#define INPUT_ANALOG INPUT
-#else
+#ifdef ARDUINO_ARCH_ESP32    // comment this section to work on uart serial
+#ifndef ESP_HWDCD_ENABLED
+#include "USB.h"
+USBCDC USBSerial;
+#else 
+HWCDC USBSerial;
+#endif
+
+
+#endif
+
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
 
 // This is a hack to let me access the internal stuff..
 #define private public
@@ -231,30 +201,18 @@
 #undef protected
 #endif
 
-#ifdef ENABLE_SNOOZE
-#define startup_early_hook DISABLE_startup_early_hook
-#include <Snooze.h>
-#undef startup_early_hook
 
-SnoozeTimer snooze_timer;
-SnoozeDigital snooze_digital;
-SnoozeTouch snooze_touch;
-SnoozeBlock snooze_config(snooze_touch, snooze_digital, snooze_timer);
-#endif
 
-#ifdef OSx
-  const char version[] = "v6.7x" OSX_SUBVERSION;
-#else // nOSx
-  const char version[] = "v6.7";
-#endif // OSx
+const char version[] = "v7.10x" OSX_SUBVERSION;
 const char install_time[] = __DATE__ " " __TIME__;
 
 #include "common/common.h"
 #include "common/state_machine.h"
-#include "common/monitoring.h"
 #include "common/stdout.h"
+#include "common/errors.h"  // Include just the base class, unless PROFFIEOS_DEFINE_FUNCTION_STAGE is defined (see EOF)
 
-Monitoring monitor;
+
+
 DEFINE_COMMON_STDOUT_GLOBALS;
 
 void PrintQuotedValue(const char *name, const char* str) {
@@ -277,72 +235,14 @@ void PrintQuotedValue(const char *name, const char* str) {
       ++str;
     }
   }
-  #ifndef OSx
-    STDOUT.write('\n');
-  #else // OSx
-    STDOUT.println("");
-  #endif
+  STDOUT.println("");
 }
 
-#ifdef ENABLE_DEBUG
-
-// This class is really useful for finding crashes
-// basically, the pin you give it will be held high
-// while this function is running. After that it will
-// be set to low. If a crash occurs in this function
-// it will stay high.
-class ScopedPinTracer {
-public:
-  explicit ScopedPinTracer(int pin) : pin_(pin) {
-    pinMode(pin_, OUTPUT);
-    digitalWriteFast(pin, HIGH);
-  }
-  ~ScopedPinTracer() {
-    digitalWriteFast(pin_, LOW);
-  }
-private:
-  int pin_;
-};
-
-class ScopedTracer3 {
-public:
-  explicit ScopedTracer3(int code) {
-    pinMode(bladePowerPin1, OUTPUT);
-    pinMode(bladePowerPin2, OUTPUT);
-    pinMode(bladePowerPin3, OUTPUT);
-    digitalWriteFast(bladePowerPin1, !!(code & 1));
-    digitalWriteFast(bladePowerPin2, !!(code & 2));
-    digitalWriteFast(bladePowerPin3, !!(code & 4));
-  }
-  ~ScopedTracer3() {
-    digitalWriteFast(bladePowerPin1, LOW);
-    digitalWriteFast(bladePowerPin2, LOW);
-    digitalWriteFast(bladePowerPin3, LOW);
-  }
-};
-
-#endif
-
-#ifdef OSx 
-  #include "common/xProbe.h"   // LoopCounter and ScopedCycleCounter redefined here
-  // #include "common/xInterpolator.h"
-  #include "common/profiling.h"
-  xProbe audio_dma_interrupt_cycles;
-  xProbe pixel_dma_interrupt_cycles;
-  xProbe motion_interrupt_cycles;
-  xProbe wav_interrupt_cycles;
-#else // nOSx
-#include "common/scoped_cycle_counter.h"
-#include "common/profiling.h"
-
-uint64_t audio_dma_interrupt_cycles = 0;
-uint64_t pixel_dma_interrupt_cycles = 0;
-uint64_t motion_interrupt_cycles = 0;
-uint64_t wav_interrupt_cycles = 0;
-uint64_t loop_cycles = 0;
-
-#include "common/loop_counter.h"
-#endif // OSx
+#include "common/Probe.h"   // LoopCounter and ScopedCycleCounter redefined here
+CPUprobe audio_dma_interrupt_cycles;
+CPUprobe pixel_dma_interrupt_cycles;
+CPUprobe motion_interrupt_cycles;
+CPUprobe wav_interrupt_cycles;
 
 #define NELEM(X) (sizeof(X)/sizeof((X)[0]))
 
@@ -365,11 +265,10 @@ uint64_t loop_cycles = 0;
 #include "common/linked_list.h"
 #include "common/looper.h"
 #include "common/command_parser.h"
-#include "common/monitor_helper.h"
 
 
 CommandParser* parsers = NULL;
-MonitorHelper monitor_helper;
+
 
 #include "common/vec3.h"  
 #include "common/quat.h"
@@ -379,26 +278,24 @@ MonitorHelper monitor_helper;
 #include "common/saber_base_passthrough.h"
 SaberBase* saberbases = NULL;
 SaberBase::LockupType SaberBase::lockup_ = SaberBase::LOCKUP_NONE;
-SaberBase::ColorChangeMode SaberBase::color_change_mode_ =
-  SaberBase::COLOR_CHANGE_MODE_NONE;
 bool SaberBase::on_ = false;
-#if !defined(ULTRA_PROFFIE) || !defined(OSx) 
+#if defined(PROFFIEBOARD) || ( defined(SABERPROP) && SABERPROP_VERSION == 'P')
   uint32_t SaberBase::last_motion_request_ = 0;
 #endif 
 uint32_t SaberBase::current_variation_ = 0;
+uint16_t SaberBase::current_rotation_ = 0;
+uint16_t SaberBase::current_desaturation_ = 0;
+
+
+
 float SaberBase::sound_length = 0.0;
 int SaberBase::sound_number = -1;
 float SaberBase::clash_strength_ = 0.0;
-#ifdef OSx
-  bool SaberBase::monoFont = true;  
-  uint8_t Sensitivity::master = 128;
+bool SaberBase::monoFont = true;  
+uint8_t Sensitivity::master = 128;
+char BoardName[33];       // Name advertised on BLE. TODO: Move this in user profile
 
 
-#endif
-
-#ifdef DYNAMIC_BLADE_DIMMING
-int SaberBase::dimming_ = 16384;
-#endif
 
 
 #include "common/box_filter.h"
@@ -424,6 +321,13 @@ int32_t clampi32(int32_t x, int32_t a, int32_t b) {
 int16_t clamptoi16(int32_t x) {
   return clampi32(x, -32768, 32767);
 }
+// clamps integer to uint16 range (0-65535)
+int clampitoui16(int x) {
+  if (x < 0) return 0;
+  if (x > 65535) return 65535;
+  return x;
+}
+
 int32_t clamptoi24(int32_t x) {
   return clampi32(x, -8388608, 8388607);
 }
@@ -432,11 +336,13 @@ int32_t clamptoi24(int32_t x) {
 
 void EnableBooster();
 void EnableAmplifier();
-// bool AmplifierIsActive();
+#ifdef PROFFIEBOARD
+  bool AmplifierIsActive();   // need this because there's no power manager (yet) for ProffieBoard
+#endif
 void MountSDCard();
 const char* GetSaveDir();
 
-#ifdef ULTRA_PROFFIE
+#if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
 void SilentEnableBooster(bool on);
 void SilentEnableAmplifier(bool on);
 #endif 
@@ -454,16 +360,40 @@ const char* next_current_directory(const char* dir) {
   if (!*dir) return NULL;
   return dir;
 }
+const char* last_current_directory() {
+  const char* ret = current_directory;
+  while (true) {
+    const char* tmp = next_current_directory(ret);
+    if (!tmp) return ret;
+    ret = tmp;
+  }
+}
 
-#ifdef ULTRA_PROFFIE_CHARGER_EQ
+const char* previous_current_directory(const char* dir) {
+  if (dir == current_directory) return nullptr;
+  dir -= 2;
+  while (true) {
+    if (dir == current_directory) return current_directory;
+    if (!*dir) return dir + 1;
+    dir--;
+  }
+}
+
+#ifdef SABERPROP_CHARGER
 uint16_t xChargerGetLimit();
 #endif
-
+#ifdef ARDUINO_ARCH_ESP32
+void xTriggerPowerOn();
+void xDestroyDAComponents();
+#endif
+#ifdef REPORT_RGB
+  uint16_t currentR, currentG, currentB;
+#endif
 #include "sound/sound.h"
 
 
 #include "common/battery_monitor.h"
-#include "common/xBatteryCharger.h"
+#include "common/BatteryCharger.h"
 
 
 #include "common/color.h"
@@ -530,18 +460,18 @@ struct is_same_type<T, T> { static const bool value = true; };
 #include "styles/byteorder.h"
 #include "styles/rotate_color.h"
 #include "styles/colorchange.h"
+#include "styles/transition_pulse.h"
 #include "styles/transition_effect.h"
 #include "styles/transition_loop.h"
 #include "styles/effect_sequence.h"
 #include "styles/color_select.h"
 #include "styles/remap.h"
-#include "styles/edit_mode.h"
 
 // functions
 #include "functions/ifon.h"
 #include "functions/change_slowly.h"
 #include "functions/int.h"
-#include "functions/int_arg.h"
+#include "functions/int_arg.h" 
 #include "functions/int_select.h"
 #include "functions/sin.h"
 #include "functions/scale.h"
@@ -572,7 +502,13 @@ struct is_same_type<T, T> { static const bool value = true; };
 #include "functions/clash_impact.h"
 #include "functions/effect_increment.h"
 #include "functions/increment.h"
-
+#include "functions/subtract.h"
+#include "functions/divide.h"
+#include "functions/isbetween.h"
+#include "functions/clamp.h"
+#include "functions/alt.h"
+#include "functions/volume_level.h"
+#include "functions/mod.h"
 
 // transitions
 #include "transitions/fade.h"
@@ -584,12 +520,14 @@ struct is_same_type<T, T> { static const bool value = true; };
 #include "transitions/join.h"
 #include "transitions/boing.h"
 #include "transitions/random.h"
-#include "transitions/colorcycle.h"
 #include "transitions/wave.h"
 #include "transitions/select.h"
 #include "transitions/extend.h"
 #include "transitions/center_wipe.h"
 #include "transitions/sequence.h"
+#include "transitions/blink.h"
+#include "transitions/doeffect.h"
+#include "transitions/loop.h"
 #include "styles/legacy_styles.h"
 //responsive styles
 
@@ -600,41 +538,24 @@ struct is_same_type<T, T> { static const bool value = true; };
 class NoLED;
 
 #include "blades/power_pin.h"
-#include "blades/drive_logic.h"
 #include "blades/pwm_pin.h"
 
-
-#ifdef OSx  // added only on Osx , error  on compiling on normal OS battery_monitor.voltageLSB not found
-            // TODO ask if x files (analog , cod reader are only for OSx ) - YES!
-#include "blades/xAnalogLED.h"
-#endif
+#include "blades/analogLED.h"
 
 #include "blades/ws2811_blade.h"
-#include "blades/fastled_blade.h"
 #include "blades/simple_blade.h"
-#include "blades/saviblade.h"
-#include "blades/sub_blade.h"
-#include "blades/dim_blade.h"
-#include "blades/leds.h"
-#include "blades/blade_id.h"
-#if defined(OSx) && !defined(OLDPROFILE)
-  #include "common/xPreset.h"
-  #include "common/xProfile.h"   
-#endif
-#include "common/preset.h"
-#include "common/blade_config.h"
-#include "common/current_preset.h"
-#include "common/status_led.h"
-#include "styles/style_parser.h"
-#include "styles/length_finder.h"
-#include "styles/show_color.h"
-#include "styles/blade_shortener.h"
 
-#ifndef OSx
-  BladeConfig* current_config = nullptr;
-#else // OSx
-  extern BladeConfig blades[];
-  BladeConfig* current_config = blades;
+
+#include "common/malloc_helper.h"
+#include "common/StringVector.h"
+#include "common/Preset.h"
+#include "common/Profile.h"   
+#include "common/blade_config.h"
+
+static POAtomic<bool> CDCConnected(false);
+
+extern BladeConfig blades[];
+BladeConfig* current_config = blades;
 
 // Get a address of a blade. bladeNo starts at 1 !!!
 inline class BladeBase* BladeAddress(uint8_t bladeNo) {
@@ -661,7 +582,7 @@ inline class BladeBase* BladeAddress(uint8_t bladeNo) {
     }
 }
 
-#endif // OSx
+
 
 class BladeBase* GetPrimaryBlade() {
 #if NUM_BLADES == 0
@@ -677,9 +598,6 @@ const char* GetSaveDir() {
 }
 
 
-#ifndef OSx // sorry, no ascii chat between machines...
-ArgParserInterface* CurrentArgParser;
-#endif
 
 #define CONFIG_PRESETS
 #include CONFIG_FILE
@@ -689,82 +607,29 @@ ArgParserInterface* CurrentArgParser;
 #include CONFIG_FILE
 #undef CONFIG_PROP
 
-#ifndef OSx // ULTRA_PROFFIE
-  #ifndef PROP_TYPE
-  #include "props/saber.h"
-  // #include "props/ultrasaber.h"  
+#ifndef PROP_TYPE
+ 
+  #ifdef PF_PROP_SABERPROP
+    #include "props/saberprop.h"  
+  #elif defined(PF_PROP_ULTRASABERS)
+    #include "props/ultrasaber.h"  
+  #elif defined(PF_PROP_SABER)
+    #include "props/saber.h"
   #endif
-#else 
-  #ifndef PROP_TYPE
-    #ifdef PF_PROP_ULTRASABERS
-      #include "props/ultrasaber.h"  
-    #elif defined(PF_PROP_SABER)
-      #include "props/saber.h"
-    #elif defined(PF_PROP_SABER_SHTOK)
-      #include "props/saber_shtok_buttons.h"
-    #elif defined(PF_PROP_SABER_SA22C)
-      #include "props/saber_sa22c_buttons.h"
-    #elif defined(PF_PROP_SABER_FETT)
-      #include "props/saber_fett263_buttons.h"
-    #elif defined(PF_PROP_SABER_BC)
-      #include "props/saber_BC_buttons.h"
-    #elif defined(PF_PROP_DETON)
-      #include "props/detonator.h"
-    #elif defined(PF_PROP_BLASTER)
-      #include "props/blaster.h"
-    #elif defined(PF_PROP_AUDIOFX)
-      #include "props/audiofx.h"
-    #endif
 
-  #endif
-#endif
+#endif // PROP_TYPE
+
 
 PROP_TYPE prop;
-
-
-
-
-#if 0
-#include "scripts/test_motion_timeout.h"
-#warning MOTION TEST SCRIPT ACTIVE
-MotionTimeoutScript script;
+#ifdef ARDUINO_ARCH_ESP32
+void xTriggerPowerOn() {
+  prop.On();
+}
 #endif
 
-#if 0
-#include "scripts/v3_test_script.h"
-#warning !!! V3 TEST SCRIPT ACTIVE !!!
-V3TestScript script;
-#endif
-
-#if 0
-#include "scripts/proffieboard_test_script.h"
-#warning !!! PROFFIEBOARD TEST SCRIPT ACTIVE !!!
-V4TestScript script;
-Blinker1 blinker1;
-Blinker2 blinker2;
-CapTest captest;
-#endif
-
-#include "buttons/floating_button.h"
-#include "buttons/latching_button.h"
 #include "buttons/button.h"
-#ifdef TEENSYDUINO
-#include "buttons/touchbutton.h"
-#else
-#include "buttons/stm32l4_touchbutton.h"
-#endif
-#include "buttons/rotary.h"
-#include "buttons/pots.h"
 
-#include "ir/ir.h"
-#include "ir/receiver.h"
-#include "ir/blaster.h"
-#include "ir/print.h"
-#include "ir/nec.h"
-#include "ir/rc6.h"
-#include "ir/stm32_ir.h"
 
-#ifndef TEENSYDUINO
 
 uint32_t startup_AHB1ENR;
 uint32_t startup_AHB2ENR;
@@ -774,39 +639,26 @@ uint32_t startup_APB1ENR2;
 uint32_t startup_APB2ENR;
 uint32_t startup_MODER[4];
 
-#endif
 
 
 
-#ifndef ULTRA_PROFFIE
+
 #define CONFIG_BUTTONS
 #include CONFIG_FILE
 #undef CONFIG_BUTTONS
-#else
-  #define CONFIG_BUTTONS
-  #include "config/board_config.h"
-  #undef CONFIG_BUTTONS
-#endif
 
-#if defined(OSx) && !defined(OLDINSTALL)
-  #include "common/xInstall.h"   // after all invocations of CONFIG_FILE
-#endif
 
-// #if defined(OSx) && !defined(OLDPROFILE)
-//   #include "common/xProfile.h"   
-// #endif  
+#include "common/Install.h"   // after all invocations of CONFIG_FILE
+
+ 
 
 
 
-#ifdef BLADE_DETECT_PIN
-LatchingButtonTemplate<FloatingButtonBase<BLADE_DETECT_PIN>>
-    BladeDetect(BUTTON_BLADE_DETECT, BLADE_DETECT_PIN, "blade_detect");
-#endif
 
-#include "common/sd_test.h"
+// #include "common/sd_test.h"
 
-#ifdef ULTRA_PROFFIE
-  #include "common/xProdSerial.h"
+#if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
+  #include "common/HardwareID.h"
 #endif
 
 #ifdef OSX_ENABLE_MTP
@@ -817,7 +669,7 @@ LatchingButtonTemplate<FloatingButtonBase<BLADE_DETECT_PIN>>
 
 class I2CDevice;
 
-#ifdef OSx
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
   int	rand (void) { return millis(); }    // cheaper and randomer, since nothing is in sync
   // Need those to report RAM usage
   extern "C" char *sbrk(int i);
@@ -829,6 +681,12 @@ class I2CDevice;
   extern uint32_t __data_end__;
   extern uint32_t __bss_start__;
   extern uint32_t __bss_end__;  
+#else
+namespace FASTRandom{
+int	rand (void) { return millis(); }    // cheaper and randomer, since nothing is in sync
+int random(int x){ return (millis() & 0x7fffff) % x; }
+}
+using namespace FASTRandom;
 #endif
 
 class Commands : public CommandParser {
@@ -880,7 +738,7 @@ class Commands : public CommandParser {
     }
 //#endif
 
-#if defined(ULTRA_PROFFIE) && defined(OSx)
+#if defined(SABERPROP)   // Saberprop and UltraProffies
   if(!strcmp(cmd, "board_info")) {
     STDOUT.println("board_info-START");
     STDOUT.println("HARDWARE:");
@@ -888,12 +746,16 @@ class Commands : public CommandParser {
     STDOUT.println("FIRMWARE:");
     STDOUT.print("ProffieOS "); STDOUT.println(version);
     STDOUT.print("Compiled: "); STDOUT.println(install_time);
+    // #ifdef ARDUINO_ARCH_ESP32
+    // STDOUT.print("Build for: "); STDOUT.println("'L31L'");
+    // #else 
     STDOUT.print("Build for: "); STDOUT.println(XSTR(HWVER));
+    // #endif
 
     STDOUT.print("Prop: '"); STDOUT.print(prop.name()); STDOUT.println("'");
     STDOUT.print("Supported blades: "); STDOUT.println(NUM_BLADES);
     STDOUT.print("Diagnose: ");
-    #ifdef PF_STATUS_REPORT_ON
+    #ifdef ENABLE_DIAGNOSE_MODE
       STDOUT.println("ON");
     #else
       STDOUT.println("OFF");
@@ -936,400 +798,38 @@ class Commands : public CommandParser {
 #endif
 
 
-    
-#ifndef OSx 
-    #if defined(ENABLE_SD) && defined(ENABLE_SERIALFLASH)
-        if (!strcmp(cmd, "cache")) {
-          LOCK_SD(true);
-          File f = LSFS::Open(e);
-          if (!f) {
-            STDOUT.println("File not found.");
-            return true;
-          }
-          int bytes = f.size();
-          if (!SerialFlashChip::create(e, bytes)) {
-            STDOUT.println("Not enough space on serial flash chip.");
-            return true;
-          }
-          SerialFlashFile o = SerialFlashChip::open(e);
-          while (bytes) {
-            char tmp[256];
-            int b = f.read(tmp, min(bytes, (int)NELEM(tmp)));
-            o.write(tmp, b);
-            bytes -= b;
-          }
-          LOCK_SD(false);
-          STDOUT.println("Cached!");
-          return true;
-        }
+  if (!strcmp(cmd, "format")) {
+    STDOUT.println("format-START");
+    int res;
+    #ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+    DOSFS.format(); // after adding it in lower package 
+    #elif ARDUINO_ARCH_STM32L4
+    res = f_format(0);        // perform format
+    #elif ARDUINO_ARCH_STM32U5
+      // TODO u4: add 
     #endif
-    
-    #ifdef ENABLE_SERIALFLASH
-        if (!strcmp(cmd, "ls")) {
-          char tmp[128];
-          SerialFlashChip::opendir();
-          uint32_t size;
-          while (SerialFlashChip::readdir(tmp, sizeof(tmp), size)) {
-            STDOUT.print(tmp);
-            STDOUT.print(" ");
-            STDOUT.println(size);
-          }
-          STDOUT.println("Done listing files.");
-          return true;
-        }
-        if (!strcmp(cmd, "rm")) {
-          if (SerialFlashChip::remove(e)) {
-            STDOUT.println("Removed.\n");
-          } else {
-            STDOUT.println("No such file.\n");
-          }
-          return true;
-        }
-        if (!strcmp(cmd, "format")) {
-          STDOUT.print("Erasing ... ");
-          SerialFlashChip::eraseAll();
-          while (!SerialFlashChip::ready());
-          STDOUT.println("Done");
-          return true;
-        }
-       
-    #endif // ENABLE_SERIALFLASH
+    if(res) {
+      #ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+      DOSFS.format(); // after adding it in lower package 
+      #elif ARDUINO_ARCH_STM32L4
+      res = f_hardformat(0);
+      #elif ARDUINO_ARCH_STM32U5
 
-    #ifdef ENABLE_SD
-      #ifndef DISABLE_DIAGNOSTIC_COMMANDS
-          if (!strcmp(cmd, "cat") && e) {
-            LOCK_SD(true);
-            File f = LSFS::Open(e);
-            while (f.available()) {
-              STDOUT.write(f.read());
-            }
-            f.close();
-            LOCK_SD(false);
-            return true;
-          }
-      #endif    // DISABLE_DIAGNOSTIC_COMMANDS
-
-      #ifdef ENABLE_DEVELOPER_COMMANDS
-          if (!strcmp(cmd, "readalot")) {
-            uint8_t tmp[10];
-            LOCK_SD(true);
-            File f = LSFS::Open(e);
-            for (int i = 0; i < 10000; i++) {
-              f.seek(0);
-              f.read(tmp, 10);
-              f.seek(1000);
-              f.read(tmp, 10);
-            }
-            f.close();
-            LOCK_SD(false);
-            STDOUT.println("Done");
-            return true;
-          }
-      #endif // ENABLE_DEVELOPER_COMMANDS
-
-      #ifndef DISABLE_DIAGNOSTIC_COMMANDS
-          if (!strcmp(cmd, "sdtest")) {
-            SDTestHelper sdtester;
-            if (e && !strcmp(e, "all")) {
-        sdtester.TestDir("");
-            } else {
-        sdtester.TestFont();
-            }
-            return true;
-          }
       #endif
 
-    #endif // ENABLE_SD
-
-    #ifdef ENABLE_DEVELOPER_COMMANDS
-        if (!strcmp(cmd, "high") && e) {
-          pinMode(atoi(e), OUTPUT);
-          digitalWrite(atoi(e), HIGH);
-          STDOUT.println("Ok.");
-          return true;
-        }
-    #endif // ENABLE_DEVELOPER_COMMANDS
-    #ifdef ENABLE_DEVELOPER_COMMANDS
-        if (!strcmp(cmd, "low") && e) {
-          pinMode(atoi(e), OUTPUT);
-          digitalWrite(atoi(e), LOW);
-          STDOUT.println("Ok.");
-          return true;
-        }
-    #endif // ENABLE_DEVELOPER_COMMANDS
-
-    #if VERSION_MAJOR >= 4
-        if (!strcmp(cmd, "booster")) {
-          if (!strcmp(e, "on")) {
-            digitalWrite(boosterPin, HIGH);
-            STDOUT.println("Booster on.");
-            return true;
-          }
-          if (!strcmp(e, "off")) {
-            digitalWrite(boosterPin, LOW);
-            STDOUT.println("Booster off.");
-            return true;
-          }
-        }
-    #endif
-
-    #ifdef ENABLE_DEVELOPER_COMMANDS
-        if (!strcmp(cmd, "sleep") && e) {
-          delay(atoi(e));
-          return true;
-        }
-    #endif
-
-    #ifdef ENABLE_DEVELOPER_COMMANDS
-        if (!strcmp(cmd, "twiddle")) {
-          int pin = strtol(e, NULL, 0);
-          STDOUT.print("twiddling ");
-          STDOUT.println(pin);
-          pinMode(pin, OUTPUT);
-          for (int i = 0; i < 1000; i++) {
-            digitalWrite(pin, HIGH);
-            delay(10);
-            digitalWrite(pin, LOW);
-            delay(10);
-          }
-          STDOUT.println("done");
-          return true;
-        }
-    #endif 
-
-    #ifdef ENABLE_DEVELOPER_COMMANDS
-        if (!strcmp(cmd, "twiddle2")) {
-          int pin = strtol(e, NULL, 0);
-          STDOUT.print("twiddling ");
-          STDOUT.println(pin);
-          pinMode(pin, OUTPUT);
-          for (int i = 0; i < 1000; i++) {
-            for (int i = 0; i < 500; i++) {
-              digitalWrite(pin, HIGH);
-              delayMicroseconds(1);
-              digitalWrite(pin, LOW);
-              delayMicroseconds(1);
-            }
-            delay(10);
-          }
-          STDOUT.println("done");
-          return true;
-        }
-    #endif 
-
-    #ifndef DISABLE_DIAGNOSTIC_COMMANDS
-        if (!strcmp(cmd, "malloc")) {
-            STDOUT.print("alloced: ");
-            STDOUT.println(mallinfo().uordblks);
-            STDOUT.print("Free: ");
-            STDOUT.println(mallinfo().fordblks);
-            return true;
-        }
-    #endif
-
-    if (!strcmp(cmd, "make_default_console")) {
-      default_output = stdout_output;
-      return true;
+      STDOUT.print("HARD format completed. Ans = ");
+      STDOUT.println(res);
+    } else {
+      STDOUT.print("FAST format completed. Ans = ");
+      STDOUT.println(res);
     }
-    #if 0
-        // Not finished yet
-        if (!strcmp(cmd, "selftest")) {
-          struct PinDefs { int8_t pin; PinType type; };
-          static PinDefs pin_defs[]  = {
-            { bladePowerPin1, PinTypePulldown },
-            { bladePowerPin2, PinTypePulldown },
-            { bladePowerPin3, PinTypePulldown },
-            { bladePowerPin4, PinTypePulldown },
-            { bladePowerPin5, PinTypePulldown },
-            { bladePowerPin6, PinTypePulldown },
-            { bladePin,       PinTypeOther },
-            { blade2Pin,      PinTypeFloating },
-            { blade3Pin,      PinTypeFloating },
-            { blade4Pin,      PinTypeFloating },
-            { blade5Pin,      PinTypeFloating },
-            { amplifierPin,   PinTypeFloating },
-            { boosterPin,     PinTypeFloating },
-            { powerButtonPin, PinTypeFloating },
-            { auxPin,         PinTypeFloating },
-            { aux2Pin,        PinTypeFloating },
-            { rxPin,          PinTypeOther },
-            { txPin,          PinTypeFloating },
-          };
-          for (size_t test_index = 0; test_index < NELEM(pin_defs); test_index++) {
-            int pin = pin_defs[test_index].pin;
-            for (size_t i = 0; i < NELEM(pin_defs); i++)
-              pinMode(pin_defs[i].pin, INPUT);
-
-            // test
-            for (size_t i = 0; i < NELEM(pin_defs); i++) {
-              pinMode(pin_defs[i].pin, OUTPUT);
-              digitalWrite(pin_defs[i].pin, HIGH);
-              // test
-              digitalWrite(pin_defs[i].pin, LOW);
-              // test
-              pinMode(pin_defs[i].pin, INPUT);
-            }
-          }
-        }
-    #endif
-
-    #ifndef DISABLE_DIAGNOSTIC_COMMANDS
-        if (!strcmp(cmd, "top")) {
-      #ifdef TEENSYDUINO
-          if (!(ARM_DWT_CTRL & ARM_DWT_CTRL_CYCCNTENA)) {
-            ARM_DEMCR |= ARM_DEMCR_TRCENA;
-            ARM_DWT_CTRL |= ARM_DWT_CTRL_CYCCNTENA;
-            STDOUT.println("Cycle counting enabled, top will work next time.");
-            return true;
-          }
-      #else
-          if (!(DWT->CTRL & DWT_CTRL_CYCCNTENA_Msk)) {
-            CoreDebug->DEMCR |= 1<<24; // DEMCR_TRCENA_Msk;
-            DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-            STDOUT.println("Cycle counting enabled, top will work next time.");
-            return true;
-          }
-      #endif
-
-          // TODO: list cpu usage for various objects.
-          float total_cycles =
-            (float)(audio_dma_interrupt_cycles +
-              pixel_dma_interrupt_cycles +
-        motion_interrupt_cycles +
-                    wav_interrupt_cycles +
-        Looper::CountCycles() +
-        CountProfileCycles());
-          STDOUT.print("Audio DMA: ");
-          STDOUT.print(audio_dma_interrupt_cycles * 100.0f / total_cycles);
-          STDOUT.println("%");
-          STDOUT.print("Wav reading: ");
-          STDOUT.print(wav_interrupt_cycles * 100.0f / total_cycles);
-          STDOUT.println("%");
-          STDOUT.print("Pixel DMA: ");
-          STDOUT.print(pixel_dma_interrupt_cycles * 100.0f / total_cycles);
-          STDOUT.println("%");
-          STDOUT.print("LOOP: ");
-          STDOUT.print(loop_cycles * 100.0f / total_cycles);
-          STDOUT.println("%");
-          STDOUT.print("Motion: ");
-          STDOUT.print(motion_interrupt_cycles * 100.0f / total_cycles);
-          STDOUT.println("%");
-          STDOUT.print("Global loops / second: ");
-          global_loop_counter.Print();
-          STDOUT.println("");
-          STDOUT.print("High frequency loops / second: ");
-          hf_loop_counter.Print();
-          STDOUT.println("");
-          SaberBase::DoTop(total_cycles);
-          Looper::LoopTop(total_cycles);
-          DumpProfileLocations(total_cycles);
-          noInterrupts();
-          audio_dma_interrupt_cycles = 0;
-          pixel_dma_interrupt_cycles = 0;
-          motion_interrupt_cycles = 0;
-          wav_interrupt_cycles = 0;
-          interrupts();
-          return true;
-        }
-    #endif
-
-    if (!strcmp(cmd, "version")) {
-      STDOUT.println(version);
-      STDOUT.print("Installed: ");
-      STDOUT.println(install_time);
-      return true;
-    }
-
-    #ifndef TEENSYDUINO
-
-      if (!strcmp(cmd, "shutdown")) {
-        STDOUT.println("Sleeping 10 seconds.\n");
-        STM32.stop(100000);
-        return true;
-      }
-
-      if (!strcmp(cmd, "RebootDFU")) {
-        stm32l4_system_dfu();
-        return true;
-      }
-
-      #ifdef ENABLE_DEVELOPER_COMMANDS
-          if (!strcmp(cmd, "stm32info")) {
-            STDOUT.print("VBAT: ");
-            STDOUT.println(STM32.getVBAT());
-            STDOUT.print("VREF: ");
-            STDOUT.println(STM32.getVREF());
-            STDOUT.print("TEMP: ");
-            STDOUT.println(STM32.getTemperature());
-            return true;
-          }
-
-          if (!strcmp(cmd, "CLK")) {
-            if (e) {
-              uint32_t c = atoi(e) * 1000000;
-              stm32l4_system_sysclk_configure(c, c/2, c/2);
-            }
-            STDOUT.print("Clocks: hse=");
-            STDOUT.print(stm32l4_system_hseclk());
-            STDOUT.print(" lse=");
-            STDOUT.print(stm32l4_system_lseclk());
-            STDOUT.print(" sys=");
-            STDOUT.print(stm32l4_system_sysclk());
-            STDOUT.print(" f=");
-            STDOUT.print(stm32l4_system_fclk());
-            STDOUT.print(" h=");
-            STDOUT.print(stm32l4_system_hclk());
-            STDOUT.print(" p1=");
-            STDOUT.print(stm32l4_system_pclk1());
-            STDOUT.print(" p2=");
-            STDOUT.print(stm32l4_system_pclk2());
-            STDOUT.print(" sai=");
-            STDOUT.println(stm32l4_system_saiclk());
-            return true;
-          }
-
-        #ifdef HAVE_STM32L4_DMA_GET    
-            if (!strcmp(cmd, "dmamap")) {
-              for (int channel = 0; channel < 16; channel++) {
-          stm32l4_dma_t *dma = stm32l4_dma_get(channel);
-          if (dma) {
-            STDOUT.print(" DMA");
-            STDOUT.print( 1 +(channel / 8) );
-            STDOUT.print("_CH");
-            STDOUT.print( channel % 8 );
-            STDOUT.print(" = ");
-            STDOUT.println(dma->channel >> 4, HEX);
-          }
-              }
-              return true;
-            }
-        #endif // HAVE_STM32L4_DMA_GET     
-
-      #endif // ENABLE_DEVELOPER_COMMANDS
-
-    #endif // TEENSYDUINO
-
-
-#else // OSx
-
-    if (!strcmp(cmd, "format")) {
-      STDOUT.println("format-START");
-      int res;
-      res = f_format(0);        // perform format
-      if(res) {
-        res = f_hardformat(0);
-        STDOUT.print("HARD format completed. Ans = ");
-        STDOUT.println(res);
-      } else {
-        STDOUT.print("FAST format completed. Ans = ");
-        STDOUT.println(res);
-      }
-      STDOUT.println("format-END");
-      return true;
-    
-    }
-#ifdef ULTRA_PROFFIE
-        if (!strcmp(cmd, "get_bor")) {
+    STDOUT.println("format-END");
+    return true;
+  
+  }
+  
+#if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
+    if (!strcmp(cmd, "get_bor")) {
       STDOUT.println("get_bor-START");
       STDOUT.print("BOR Level =  "); STDOUT.println(stm32l4_bor_get());
       STDOUT.println("get_bor-END");
@@ -1394,7 +894,7 @@ class Commands : public CommandParser {
         int8_t res;
         bool result;
         uint32_t readCRC, calcCRC;
-        xCodReader codReaderObj;  
+        CodReader codReaderObj;  
         result = codReaderObj.Open(e);
         if(result) 
         {
@@ -1449,7 +949,7 @@ class Commands : public CommandParser {
   #endif // ENABLE_DIAGNOSE_COMMANDS
 
 
-  #if defined(X_PROBECPU) && defined(ENABLE_DEVELOPER_MODE)
+  #if defined(X_PROBECPU) && defined(ENABLE_DEVELOPER_MODE) && defined(ARDUINO_ARCH_STM32L4)
       if (!strcmp(cmd, "malloc")) {
           struct mallinfo mi = mallinfo();
           STDOUT.print(" * Total non-mmapped bytes (arena): "); STDOUT.println(mi.arena);
@@ -1464,7 +964,6 @@ class Commands : public CommandParser {
           STDOUT.print(" * Topmost releasable block (keepcost): "); STDOUT.println(mi.keepcost);
         return true;
       }
-    
       if (!strcmp(cmd, "ram")) {
         char *heapend = (char*)sbrk(0);
         char * stack_ptr = (char*)__get_MSP();
@@ -1484,6 +983,7 @@ class Commands : public CommandParser {
         STDOUT.print("----- Total SRAM1 usage: "); STDOUT.print(percent); STDOUT.println("%.");
         return true;
       }
+
 
       if (!strcmp(cmd, "top")) {
         // 1. Enable cycle counter if it's not
@@ -1572,11 +1072,69 @@ class Commands : public CommandParser {
 
   #endif // X_PROBECPU
 
+  #if defined(ARDUINO_ARCH_ESP32) // TODO protect to   && defined(X_PROBECPU) && defined(ENABLE_DEVELOPER_MODE)
+  if (!strcmp(cmd, "ram"))
+  {
+    STDOUT.print(" heapSize:     ");STDOUT.print(ESP.getHeapSize()); 
+    STDOUT.print(" heapfree:     ");STDOUT.print(ESP.getFreeHeap());
+    STDOUT.print(" heapMinFree:  ");STDOUT.print(ESP.getMinFreeHeap()); 
+    STDOUT.print(" heapMaxAlooc: ");STDOUT.println(ESP.getMaxAllocHeap());
+    #ifdef ESP_S3_WROOM
+    STDOUT.print(" PSRAM_Size:     ");STDOUT.print(ESP.getPsramSize()); 
+    STDOUT.print(" PSRAM_free:     ");STDOUT.print(ESP.getFreePsram());
+    STDOUT.print(" PSRAM_MinFree:  ");STDOUT.print(ESP.getMinFreePsram()); 
+    STDOUT.print(" PSRAM_MaxAlooc: ");STDOUT.println(ESP.getMaxAllocPsram());
+
+    STDOUT.print(" Chip rev:     "); STDOUT.print(ESP.getChipRevision());
+    STDOUT.print(" Chip model:     "); STDOUT.print(ESP.getChipModel());
+    STDOUT.print(" Chip cores:     "); STDOUT.print(ESP.getChipCores());
+    STDOUT.print(" Chip freq:     "); STDOUT.print(ESP.getCpuFreqMHz());
+    STDOUT.print(" Chip rev:     "); STDOUT.print(ESP.getChipRevision());
+    STDOUT.print(" Chip size:     "); STDOUT.print(ESP.getFlashChipSize());
+    STDOUT.print(" Chip falsh speed:     "); STDOUT.print(ESP.getFlashChipSpeed());
+    // STDOUT.print(" Chip mode:     "); STDOUT.println(ESP.getFlashChipMode());
+
+    #endif
+    return true;
+  }
+  #endif
+
   if (!strcmp(cmd, "alive")) {
     STDOUT.println("alive-START");
     if (prop.IsOn()) STDOUT.println("propstate: on");
     else STDOUT.println("propstate: off");
     STDOUT.print("battery: ");  battery_monitor.Print(); STDOUT.println("");
+    #ifdef ARDUINO_ARCH_ESP32
+    STDOUT.print("stealth: ");
+    STDOUT.println(prop.stealthMode ? "on" : "off");
+    uint8_t effectState = 0;
+    switch(SaberBase::Lockup())
+    {
+      case SaberBase::LOCKUP_MELT:
+        effectState |= 1;
+        break;
+      case SaberBase::LOCKUP_LIGHTNING_BLOCK:
+        effectState |= 1 << 1;
+        break;
+      case SaberBase::LOCKUP_DRAG:
+        effectState |= 1 << 2;
+        break;
+      case SaberBase::LOCKUP_NORMAL:
+        effectState |= 1 << 3;
+        break;
+      default:
+        break;
+    }
+    if(track_player_)effectState |= 1 << 4;
+    STDOUT.printf("effects: 0x%02X\n", effectState);
+    STDOUT.print("wifiRSSI: ");
+    #ifdef WIFI_ENABLED_ESP32
+    if(wifiSerial.getWifiStatus())
+      STDOUT.println(WiFi.RSSI());
+    else 
+    #endif
+      STDOUT.println("off");
+    #endif
     STDOUT.println("alive-END");
     return true;
   }
@@ -1588,7 +1146,7 @@ class Commands : public CommandParser {
     }
   #endif // X_BROADCAST
 
-#endif // OSx
+
 
 
 
@@ -1674,7 +1232,7 @@ class Commands : public CommandParser {
 
 
 
-#ifdef ENABLE_DEVELOPER_COMMANDS
+#if defined(ENABLE_DEVELOPER_COMMANDS) && defined(ARDUINO_ARCH_STM32L4)
 
     if (!strcmp(cmd, "dumpfusor")) {
       fusor.dump();
@@ -1871,9 +1429,12 @@ class Commands : public CommandParser {
 #endif //  ENABLE_DEVELOPER_COMMANDS
 
     if (!strcmp(cmd, "reset")) {
-    #ifdef TEENSYDUINO
-      SCB_AIRCR = 0x05FA0004;
-    #else
+    #if defined(ARDUINO_ARCH_ESP32)  // ESP architecture
+      ESP.deepSleep(0);   // restart() does not reset all peripherals, deep sleep with immediate wakeup apparently does
+      // ESP.restart();
+    #elif defined(ARDUINO_ARCH_STM32U5)
+    // TODO u5: add reset
+    #elif defined(ARDUINO_ARCH_STM32L4)
       STM32.reset();
     #endif 
       STDOUT.println("Reset failed.");
@@ -1884,7 +1445,7 @@ class Commands : public CommandParser {
   }
 
   void Help() override {
-#if defined(COMMANDS_HELP) || !defined(OSx)
+#if defined(COMMANDS_HELP) 
     STDOUT.println(" version - show software version");
     STDOUT.println(" reset - restart software");
   #ifndef DISABLE_DIAGNOSTIC_COMMANDS    
@@ -1899,17 +1460,15 @@ class Commands : public CommandParser {
     STDOUT.println(" dir [directory] - list files on SD card.");
     STDOUT.println(" sdtest - benchmark SD card");
   #endif
-  #ifdef OSx
-    #ifdef X_PROBECPU
-      STDOUT.println(" top - report CPU usage and execution times");
-    #endif
-    #ifdef X_BROADCAST
-      STDOUT.println(" broadcast on/off - enable/disable binary broadcasting");
-    #endif
-    #ifndef DISABLE_DIAGNOSTIC_COMMANDS
-      STDOUT.println(" cod <filename> - list all entries in a .COD file");
-    #endif
-  #endif // OSx
+  #ifdef X_PROBECPU
+    STDOUT.println(" top - report CPU usage and execution times");
+  #endif
+  #ifdef X_BROADCAST
+    STDOUT.println(" broadcast on/off - enable/disable binary broadcasting");
+  #endif
+  #ifndef DISABLE_DIAGNOSTIC_COMMANDS
+    STDOUT.println(" cod <filename> - list all entries in a .COD file");
+  #endif
 #else // COMMANDS_HELP
   STDOUT.println("For help on ASCII commands, visit http://git.ultraproffie/ASCII_Commands.md");
 #endif // COMMANDS_HELP
@@ -1926,37 +1485,25 @@ StaticWrapper<Commands> commands;
 I2CBus i2cbus;
 #endif
 
-#ifdef ENABLE_SSD1306
-#include "display/ssd1306.h"
-
-StandardDisplayController<128, uint32_t> display_controller;
-SSD1306Template<128, uint32_t> display(&display_controller);
-#endif
-
-#ifdef INCLUDE_SSD1306
-#include "display/ssd1306.h"
-#endif
-
 
 #ifdef ENABLE_MOTION
 
 #include "motion/motion_util.h"
-#include "motion/mpu6050.h"
 #include "motion/lsm6ds3h.h"
-#include "motion/fxos8700.h"
-#include "motion/fxas21002.h"
 
-// Define this to record clashes to sd card as CSV files
-// #define CLASH_RECORDER
-
-#include "scripts/clash_recorder.h"
 
 #ifdef GYRO_CLASS
 // Can also be gyro+accel.
 StaticWrapper<GYRO_CLASS> gyroscope;
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
+  #ifdef SABERPROP
 void EnableMotion() {gyroscope->enabled = true; }
 void DisableMotion() {gyroscope->enabled = false; }
+#else // Stubs for ProffieBoard
+  void EnableMotion() { }
+  void DisableMotion() { }
+#endif
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
+  void motion_irq() {  gyroscope->Poll(); }  
 #endif
 #endif
 
@@ -1966,17 +1513,17 @@ StaticWrapper<ACCEL_CLASS> accelerometer;
 
 #endif   // ENABLE_MOTION
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
+#ifdef SABERPROP
   #include "common/sd_card.h"   // amplifier and booster replaced by power manager
-#else // nOSx
+#else 
   #include "sound/amplifier.h"
-  #include "common/sd_card.h"©
+  #include "common/sd_card.h"
   #include "common/booster.h"
-#endif // OSx
+#endif 
 
 
 
-#if defined(ULTRA_PROFFIE) && defined(OSx)
+#if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
 bool PublishContent(const char* filename)
 {
 
@@ -1989,7 +1536,7 @@ bool PublishContent(const char* filename)
     char buffer[10];
     myfileReader.Write("board_info-START\n");
     myfileReader.Write("HARDWARE:\n");
-    #ifdef ULTRA_PROFFIE
+    #if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
     PROFFIE_HDID.printHWSN(&myfileReader);
     #endif
     myfileReader.Write("FIRMWARE:\n");
@@ -2001,7 +1548,7 @@ bool PublishContent(const char* filename)
     myfileReader.Write("Prop: '"); myfileReader.Write(prop.name()); myfileReader.Write("'\n");
     myfileReader.Write("Supported blades: "); myfileReader.Write(buffer); myfileReader.Write("\n");
     myfileReader.Write("Diagnose: ");   
-    #ifdef PF_STATUS_REPORT_ON
+    #ifdef ENABLE_DIAGNOSE_MODE
       myfileReader.Write("ON\n");
     #else
       myfileReader.Write("OFF\n");
@@ -2034,7 +1581,7 @@ bool PublishContent(const char* filename)
   return false;
   
 }
-#include "common/fwupdate.h"
+#include "common/FwUpdate.h"
 
 bool BootInSafeMode()
 {
@@ -2069,8 +1616,76 @@ bool BootInSafeMode()
 }
 #endif
 
+#include "common/FwUpdate.h"
+
+
+static POAtomic<bool> BootCompleted(false);   // gets TRUE when boot is completed (regardless of boot errors)
+
+#ifdef ARDUINO_ARCH_ESP32
+#ifndef ESP_HWDCD_ENABLED
+static void usbEventCallback(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data){
+  if(event_base == ARDUINO_USB_EVENTS){
+    arduino_usb_event_data_t * data = (arduino_usb_event_data_t*)event_data;
+    switch (event_id){
+      case ARDUINO_USB_STARTED_EVENT:
+        // Serial.println("USB PLUGGED");
+        break;
+      case ARDUINO_USB_STOPPED_EVENT:
+        // Serial.println("USB UNPLUGGED");
+        CDCConnected.set(false);
+        break;
+      case ARDUINO_USB_SUSPEND_EVENT:
+        // Serial.println("USB SUSPENDED"); //: remote_wakeup_en: %u\n", data->suspend.remote_wakeup_en);
+        break;
+      case ARDUINO_USB_RESUME_EVENT:
+        // Serial.println("USB RESUMED");
+        break; 
+      
+      default:
+        break;
+    }
+  } else if(event_base == ARDUINO_USB_CDC_EVENTS){
+    arduino_usb_cdc_event_data_t * data = (arduino_usb_cdc_event_data_t*)event_data;
+    switch (event_id){
+      case ARDUINO_USB_CDC_CONNECTED_EVENT:
+        // Serial.println("CDC CONNECTED");
+        CDCConnected.set(true);
+        break;
+      case ARDUINO_USB_CDC_DISCONNECTED_EVENT:
+        // Serial.println("CDC DISCONNECTED");
+        CDCConnected.set(false);
+        break;
+      case ARDUINO_USB_CDC_LINE_STATE_EVENT:
+       // Serial.printf("CDC LINE STATE: dtr: %u, rts: %u\n", data->line_state.dtr, data->line_state.rts);
+        break;
+      case ARDUINO_USB_CDC_LINE_CODING_EVENT:
+       // Serial.printf("CDC LINE CODING: bit_rate: %u, data_bits: %u, stop_bits: %u, parity: %u\n", data->line_coding.bit_rate, data->line_coding.data_bits, data->line_coding.stop_bits, data->line_coding.parity);
+        break;
+      case ARDUINO_USB_CDC_RX_EVENT:
+        // Serial.printf("CDC RX [%u]:", data->rx.len);
+        break;
+       case ARDUINO_USB_CDC_RX_OVERFLOW_EVENT:
+        //Serial.printf("CDC RX Overflow of %d bytes", data->rx_overflow.dropped_bytes);
+        break;
+     
+      default:
+        break;
+    }
+  }
+}
+#endif  // ESP_HWDCD_ENABLED
+#endif // ESP32
+
+#ifdef ENABLE_LOGG_WAVE_OUTPUT
+#include "common/ramLogger.h"
+#endif
+
 void setup() {
-#if VERSION_MAJOR >= 4
+  #ifdef ARDUINO_ARCH_ESP32
+  esp_sleep_wakeup_cause_t wakeupSource;
+  uint32_t sTime = millis();
+  #endif
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
 #define SAVE_RCC(X) startup_##X = RCC->X
   SAVE_RCC(AHB1ENR);
   SAVE_RCC(AHB2ENR);
@@ -2091,15 +1706,30 @@ void setup() {
 
 
 #ifdef OSX_ENABLE_MTP
+  #ifdef ARDUINO_ARCH_ESP32
+  Serial.setRxBufferSize(1056);
+  #ifndef ESP_HWDCD_ENABLED
+  USBSerial.setRxBufferSize(1056);
+  // USBSerial.setDebugOutput(false);
+    USB.onEvent(usbEventCallback);
+    USBSerial.onEvent(usbEventCallback);
+    USB.begin();
+  #endif
+    USBSerial.begin(SERIAL_ASCII_BAUD);
+  #endif
 Serial.begin(SERIAL_ASCII_BAUD);
 #else 
 Serial.begin(9600);
 #endif
-
 //  Serial.begin(921600);  // 921600
 //  Serial.begin(9600);
-
-#if defined(OSx) && !defined(ULTRA_PROFFIE) && defined(ENABLE_DEVELOPER_MODE)
+#ifdef ARDUINO_ARCH_ESP32
+  wakeupSource = print_wakeup_reason();
+  if(wakeupSource == ESP_SLEEP_WAKEUP_EXT0)
+    STDOUT.Silent(true);
+#endif
+  
+#if defined(PROFFIEBOARD) && defined(ENABLE_DEVELOPER_MODE)
   // #ifdef X_WAIT_FOR_SERIAL
     { // wait until we can use serial (up to 5 seconds if USB is not connected)
       uint32_t started_ = millis();
@@ -2107,57 +1737,45 @@ Serial.begin(9600);
     }
     if (Serial) { Serial.println(""); Serial.println(""); Serial.println(""); Serial.println("- serial port alive -"); }
   // #endif
-#endif // OSx
+#endif 
 
-#ifdef OSx
-  #if defined(ULTRA_PROFFIE) 
-    #if HWL_CONCAT(MQUOATE, HW_PREFIX, MQUOATE) == 'L'
-      CheckFwUpdate();  // todo
-    #endif 
+
+
+
+if (Serial) { 
+  Serial.println(""); Serial.println("");
+  STDOUT.print(" - Welcome to ProffieOS ");
+  STDOUT.print(version);  STDOUT.println(" -");
+  STDOUT.print("Prop: '"); STDOUT.print(prop.name()); STDOUT.print("' supports ");
+  STDOUT.print(NUM_BLADES);
+  STDOUT.print(" blades. Diagnose is ");
+  #ifdef ENABLE_DIAGNOSE_MODE
+    STDOUT.print("ON");
+  #else
+    STDOUT.print("OFF");
   #endif
-  if (Serial) { 
-    Serial.println(""); Serial.println("");
-    STDOUT.print(" - Welcome to ProffieOS ");
-    STDOUT.print(version);  STDOUT.println(" -");
-    STDOUT.print("Prop: '"); STDOUT.print(prop.name()); STDOUT.print("' supports ");
-    STDOUT.print(NUM_BLADES);
-    STDOUT.print(" blades. Diagnose is ");
-    #ifdef PF_STATUS_REPORT_ON
-      STDOUT.print("ON");
-    #else
-      STDOUT.print("OFF");
-    #endif
-    STDOUT.print(". Developer mode is ");
-    #ifdef ENABLE_DEVELOPER_MODE
-      STDOUT.print("ON");
-    #else
-      STDOUT.print("OFF");
-    #endif
-    STDOUT.println(".");
-    STDOUT.println("");
-    }
-#endif // OSx
+  STDOUT.print(". Developer mode is ");
+  #ifdef ENABLE_DEVELOPER_MODE
+    STDOUT.print("ON");
+  #else
+    STDOUT.print("OFF");
+  #endif
+  STDOUT.println(".");
+  STDOUT.println("");
+  }
 
-#if VERSION_MAJOR >= 4
-  // TODO: Figure out if we need this.
-  // Serial.blockOnOverrun(false);
-#endif
 
   // Wait for all voltages to settle.
   // Accumulate some entrypy while we wait.
   uint32_t now = millis();
 
   while (millis() - now < PROFFIEOS_STARTUP_DELAY) {
-#ifndef NO_BATTERY_MONITOR  
-    srand((rand() * 917823) ^ LSAnalogRead(batteryLevelPin));
-#endif
+    #ifdef ARDUINO_ARCH_STM32L4
+      #ifndef NO_BATTERY_MONITOR  
+          srand((rand() * 917823) ^ LSAnalogRead(batteryLevelPin));
+      #endif
+    #endif
 
-#ifdef BLADE_DETECT_PIN
-    // Figure out if blade is connected or not.
-    // Note that if PROFFIEOS_STARTUP_DELAY is smaller than
-    // the settle time for BladeDetect, this won't work properly.
-    BladeDetect.Warmup();
-#endif
   }
 
   // 1. Init memory
@@ -2168,7 +1786,7 @@ Serial.begin(9600);
   bool sd_card_found = LSFS::Begin();
   if (!sd_card_found) {
     if (sdCardSelectPin >= 0 && sdCardSelectPin < 255) {
-      #if (defined(OSx) && defined(DIAGNOSE_STORAGE)) || !defined(OSx)
+      #if defined(DIAGNOSE_STORAGE)
       STDOUT.println("No "STORAGE_RES" found.");
       #endif
       pinMode(sdCardSelectPin, OUTPUT);
@@ -2177,12 +1795,13 @@ Serial.begin(9600);
       pinMode(sdCardSelectPin, INPUT);
       delayMicroseconds(2);
       if (digitalRead(sdCardSelectPin) != HIGH) {
-        #if (defined(OSx) && defined(DIAGNOSE_STORAGE)) || !defined(OSx)
+        #if defined(DIAGNOSE_STORAGE)
         STDOUT.println("SD select not pulled high!");
         #endif
       }
     }
-#if VERSION_MAJOR >= 4
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
+
     stm32l4_gpio_pin_configure(GPIO_PIN_PA5,   (GPIO_PUPD_PULLUP | GPIO_OSPEED_HIGH | GPIO_MODE_INPUT));
     delayMicroseconds(10);
     if (!stm32l4_gpio_pin_read(GPIO_PIN_PA5)) {
@@ -2193,121 +1812,143 @@ Serial.begin(9600);
     if (stm32l4_gpio_pin_read(GPIO_PIN_PA5)) {
       STDOUT.println("SCK won't go low!");
     }
-#endif // VERSION_MAJOR
+#endif 
   } else {
-    #if (defined(OSx) && defined(DIAGNOSE_STORAGE)) || !defined(OSx)
+    #if defined(DIAGNOSE_STORAGE)
     STDOUT.println(STORAGE_RES" found.");
     #endif
   }
 #endif // ENABLE_SD
 
-#if !defined(ULTRA_PROFFIE) && defined(PROFFIEBOARD_VERSION)
+#ifdef PROFFIEBOARD
   ProffieBoard_InitCRC();   // Ugly patch, we need to get all board packages under the same JSON to get rid of this...
 #endif
 
-  // 2. Install configuration
-  #if defined(OSx) && !defined(OLDINSTALL)
-      #if defined(ULTRA_PROFFIE)
-      bool skip = BootInSafeMode();
-      #else 
-      bool skip = 0;
+  // 1.5 Check for newer firmware on SD and upgrade if needed
+  #if defined(SABERPROP) && SABERPROP_VERSION != 'Z' // STM Saberprop and UltraProffies
+      #if SABERPROP_VERSION == 'L'
+      CheckFwUpdate();  // todo
+      #elif SABERPROP_VERSION == 'P'
+      if(wakeupSource != ESP_SLEEP_WAKEUP_EXT0)
+        Binupdater.CheckFwUpdate();
       #endif
+  #endif
 
-      if(!skip)	
-      {
-        #ifdef DIAGNOSE_BOOT
-          xInstall(INSTALL_FILE);
-          STDOUT.println("");
-        #else
-          STDOUT.print("Running xInstall ... ");
-          if (xInstall(INSTALL_FILE)) STDOUT.println("Success.");
-          else STDOUT.println("FAILED!");
-        #endif
-      }
-  #endif // OSx
+  // 2. Install configuration
+  #if defined(SABERPROP) && defined(ARDUINO_ARCH_STM32L4) // STM Saberprop and UltraProffies
+  bool skip = BootInSafeMode();
+  #else 
+  bool skip = 0;
+  #endif
 
-  #if !defined(OSx) || defined(OLDPROFILE)
-      Looper::DoSetup();
-      // Time to identify the blade.
-      prop.FindBlade();
-  #else // OSx
-
-      // 3. User Profile
-      if(!skip) {
-        #ifdef DIAGNOSE_BOOT
-            SetUserProfile(PROFILE_FILE);
-        #else // DIAGNOSE_BOOT
-          STDOUT.print("Running xProfile ... ");
-          if (SetUserProfile(PROFILE_FILE)) STDOUT.println("Success.");
-          else STDOUT.println("FAILED!");
-        #endif // DIAGNOSE_BOOT
-
-        // 4. Publish content
-        #if defined(BOARDTYPE_LITE)
-          #ifdef DIAGNOSE_BOOT    
-            STDOUT.print ("Publishing content in "); STDOUT.print(OFFLINE_FILE); STDOUT.print(" ........................ ");
-            if (PublishContent(OFFLINE_FILE)) STDOUT.println("Success.");
-            else STDOUT.println("FAILED!");
-          #else
-            STDOUT.print("Publishing content ... ");
-            if (PublishContent(OFFLINE_FILE)) STDOUT.println("Success.");
-            else STDOUT.println("FAILED!");
-          #endif
-        #endif // BOARDTYPE_LITE
-
-        STDOUT.println("");
-        prop.ActivateBlades();
-        prop.SetPreset(userProfile.preset, false);
-      }     
-      
-      
-
-      // 5. Setup
-      Looper::DoSetup();    
-  #endif // OSx
-
-  // 5. Signal boot
-  SaberBase::DoBoot();
-#if defined(ENABLE_SD) && defined(ENABLE_AUDIO)
-  if (!sd_card_found) {
-    talkie.Say(talkie_sd_card_15, 15);
-    talkie.Say(talkie_not_found_15, 15);
+  if(!skip)	
+  {
+    #ifdef DIAGNOSE_BOOT
+      Install(INSTALL_FILE);
+      STDOUT.println("");
+    #else
+      STDOUT.print("Running Install ... ");
+      if (Install(INSTALL_FILE)) STDOUT.println("Success.");
+      else STDOUT.println("FAILED!");
+    #endif
   }
+
+
+  // 3. User Profile
+  if(!skip) {
+    #ifdef DIAGNOSE_BOOT
+        SetUserProfile(PROFILE_FILE);
+    #else // DIAGNOSE_BOOT
+      STDOUT.print("Running xProfile ... ");
+      if (SetUserProfile(PROFILE_FILE)) STDOUT.println("Success.");
+      else STDOUT.println("FAILED!");
+    #endif // DIAGNOSE_BOOT
+
+    // 4. Publish content
+    #if defined(SABERPROP) && SABERPROP_VERSION == 'L'  
+      #ifdef DIAGNOSE_BOOT    
+        STDOUT.print ("Publishing content in "); STDOUT.print(OFFLINE_FILE); STDOUT.print(" ........................ ");
+        if (PublishContent(OFFLINE_FILE)) STDOUT.println("Success.");
+        else STDOUT.println("FAILED!");
+      #else
+        STDOUT.print("Publishing content ... ");
+        if (PublishContent(OFFLINE_FILE)) STDOUT.println("Success.");
+        else STDOUT.println("FAILED!");
+      #endif
+    #endif // SABERPROP_VERSION
+
+    STDOUT.println("");
+    prop.ActivateBlades();
+    prop.SetPreset(userProfile.preset, false);
+  }     
+    
+      
+
+  // 5. Setup
+  Looper::DoSetup();    
+
+
+  // 6. Signal boot
+  #ifdef ARDUINO_ARCH_ESP32
+  if(wakeupSource == ESP_SLEEP_WAKEUP_EXT0)
+  {
+    STDOUT.Silent(false);
+    uint32_t endTime = millis();
+    STDOUT.printf("Time without printing: %d ms \n", (endTime - sTime));
+    SaberBase::DoOn();
+  } else {
+    SaberBase::DoBoot();
+  }
+  #else 
+    SaberBase::DoBoot();
+  #endif
+
+#if defined(ENABLE_SD) && defined(ENABLE_AUDIO)
+  if (!sd_card_found) ProffieOSErrors::sd_card_not_found();
 #endif // ENABLE_AUDIO && ENABLE_SD
-  
+  BootCompleted.set(true);    // signal end of boot
+  // print_wakeup_reason();
 }
 
-#ifdef MTP_RX_ENDPOINT
 
-void mtp_yield() { Looper::DoLoop(); }
-void mtp_lock_storage(bool lock) {
-  AudioStreamWork::LockSD(lock);
-}
 
-#include "mtp/mtpd.h"
-MTPD mtpd;
-
-#ifdef ENABLE_SD
-#include "mtp/mtp_storage_sd.h"
-MTPStorage_SD sd_storage(&mtpd);
-#endif
-
-#ifdef ENABLE_SERIALFLASH
-#include "mtp/mtp_storage_serialflash.h"
-MTPStorage_SerialFlash serialflash_storage(&mtpd);
-#endif
-
-#endif  // MTP_RX_ENDPOINT
-
-#include "common/clock_control.h"
 
 void loop() {
-#ifdef MTP_RX_ENDPOINT
-  mtpd.loop();
-#endif
   Looper::DoLoop();
 }
+
+#ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+// #include "common/BlServerTest.h"
+#include "common/BLEserial.h"
+#ifdef WIFI_ENABLED_ESP32
+#include "common/TCPServer_test.h"
+#endif
+
+void setup2()
+{
+  while (!BootCompleted.get());   // wait until boot is over before advertising BLE
+  // BLSERIAL.begin(); 
+  
+  BLSERIAL.Setup(); 
+  #ifdef WIFI_ENABLED_ESP32
+    wifiSerial.Setup();
+  #endif
+}
+
+void loop2()
+{
+    BLSERIAL.Loop();
+    #ifdef WIFI_ENABLED_ESP32
+    wifiSerial.Loop();
+    #endif
+}
+#endif
+
 
 #define CONFIG_BOTTOM
 #include CONFIG_FILE
 #undef CONFIG_BOTTOM
+
+#define PROFFIEOS_DEFINE_FUNCTION_STAGE
+#include "common/errors.h"
+

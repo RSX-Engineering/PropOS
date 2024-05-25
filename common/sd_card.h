@@ -7,24 +7,30 @@
 //   #include "serial.h"
 // #endif
 
-#if defined(ENABLE_SD) && VERSION_MAJOR >= 4
+#if defined(ENABLE_SD) 
 
  #if DOSFS_SDCARD == 1 && DOSFS_SFLASH == 0
     #define STORAGE_RES "SD Card"
-  #elif DOSFS_SDCARD == 0 && DOSFS_SFLASH == 1
+ #elif DOSFS_SDCARD == 0 && DOSFS_SFLASH == 1
     #define STORAGE_RES "FLASH"
-  #endif
+ #elif defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_STM32U5) // ESP architecture
+  #define STORAGE_RES "SD Card"
+ #endif
 // Unmount sdcard when we don't need it anymore.
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
-class SDCard : Looper , xPowerSubscriber {
-#else // nULTRA_PROFFIE
+#ifdef SABERPROP
+class SDCard : Looper , PowerSubscriber {
+#else 
 class SDCard : Looper {
-#endif // ULTRA_PROFFIE
+#endif
 public:
   
-  #if defined(ULTRA_PROFFIE) && defined(OSx) 
-    SDCard() : Looper(), xPowerSubscriber(pwr4_SD) {}
+  #ifdef SABERPROP
+   #if SABERPROP_VERSION == 'P'
+    SDCard() : Looper(), PowerSubscriber(pwr4_CPU) {}   // was pwr4_SD changed to pwr4_CPU quick fix
+   #else
+    SDCard() : Looper(), PowerSubscriber(pwr4_SD) {}
+   #endif 
   #else
     SDCard() : Looper()  {}
   #endif
@@ -32,18 +38,24 @@ public:
   const char* name() override { return STORAGE_RES; }
 
 
-  #if defined(ULTRA_PROFFIE) && defined(OSx) 
+  #ifdef SABERPROP
+  //  #ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+  //   bool HoldPower() override {  // Return true to pause power subscriber timeout
+  //     return true;
+  //   }
+  //  #endif
+    
     bool Active() {
       // if (amplifier.Active() || AudioStreamWork::sd_is_locked() || AudioStreamWork::SDActive()) return true;
       if (SoundActive() || AudioStreamWork::sd_is_locked() || AudioStreamWork::SDActive()) return true;
       // TODO add define here
       #ifdef OSX_ENABLE_MTP 
-      if (Serial_Protocol<SerialAdapter>::GetSession()) return true;
+      if (MTPS_status::GetSession()) return true;
       #endif
       if (SaberBase::IsOn()) return true;
       return false;
     }
-  #else // nOSx
+  #else 
     bool Active() {
     #ifdef ENABLE_AUDIO    
         if (amplifier.Active() || AudioStreamWork::sd_is_locked() || AudioStreamWork::SDActive()) {
@@ -62,12 +74,12 @@ public:
         if (t < 1000) return true;
         return false;
       }  
-  #endif // OSx
+  #endif 
 
   
 
   void Mount() {
-    #if defined(ULTRA_PROFFIE) && defined(OSx)
+    #ifdef SABERPROP
       uint32_t mountTimeout = PWRMAN_SDMOUNTTIMEOUT;
       RequestPower(&mountTimeout);   // allow longer time for pre-loop initializations
     #endif    
@@ -77,11 +89,15 @@ public:
     // Wait for card to become available, up to 1000ms
     uint32_t start = millis();
     while (!LSFS::CanMount() && millis() - start < 1000)
+      #if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_STM32U5)   // ESP architecture
+      yield();
+      #else
       armv7m_core_yield();
+      #endif
     if (!LSFS::CanMount()) {
       char tmp[128];
       LSFS::WhyBusy(tmp);
-      #if (defined(OSx) && defined(DIAGNOSE_STORAGE)) || !defined(OSx)
+      #if defined(DIAGNOSE_STORAGE)
       STDOUT.print(STORAGE_RES" is busy, flags= ");
       STDOUT.println(tmp);
       #endif
@@ -89,7 +105,7 @@ public:
     }
     
     if (!LSFS::Begin()) {
-      #if (defined(OSx) && defined(DIAGNOSE_STORAGE)) || !defined(OSx)
+      #if defined(DIAGNOSE_STORAGE)
       STDOUT.println("Failed to mount " STORAGE_RES);
       #endif
       return;
@@ -101,11 +117,11 @@ protected:
     last_enabled_ = millis();
   }
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
+#ifdef SABERPROP
   void Loop() override {
       if (Active()) 
           RequestPower();   // for all subscribed domains       
-      if(!Serial_Protocol<SerialAdapter>::GetSession()) 
+      if(!MTPS_status::GetSession())   // Serial_Protocol<SerialAdapter>::GetSession()
       {        
          if(!LSFS::IsMounted()) {   // attempt to mount once every secondm if it should be active
           if (Active() && millis() - last_mount_try_ > 1000) {
@@ -117,7 +133,7 @@ protected:
         }   
       }
   }
-#else // nULTRA_PROFFIE
+#else 
   void Loop() override {
       if (LSFS::IsMounted()) {
         if (!Active()) {
@@ -136,13 +152,16 @@ protected:
         }
       }
   }
-#endif // ULTRA_PROFFIE
+#endif 
 
   
   
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
-        void PwrOn_Callback() override { 
+#ifdef SABERPROP
+        void PwrOn_Callback() override {
+          #ifdef ARDUINO_ARCH_ESP32
+          // Mount();
+          #endif
           #ifdef DIAGNOSE_POWER
             STDOUT.println(" sd+ "); 
           #endif
@@ -159,7 +178,7 @@ protected:
               STDOUT.println(" sd- "); 
             #endif
         }         
-#endif // ULTRA_PROFFIE
+#endif
 
 private:
   uint32_t last_enabled_;
@@ -168,7 +187,7 @@ private:
 
 SDCard sdcard;
 inline void MountSDCard() { sdcard.Mount(); }
-#else  // v4 && enable_sd
+#else
 inline void MountSDCard() {  }
 #endif // v4 && enable_sd
 

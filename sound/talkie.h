@@ -969,11 +969,11 @@ public:
 	Say(talkie_not_found_15, 15);
 	return true;
       }
-      if (!strcmp(arg, "ftl")) {
-	Say(talkie_font_directory_15, 15);
-	Say(talkie_too_long_15, 15);
-	return true;
-      }
+  //     if (!strcmp(arg, "ftl")) {
+	// Say(talkie_font_directory_15, 15);
+	// Say(talkie_too_long_15, 15);
+	// return true;
+  //     }
       if (!strcmp(arg, "sd")) {
 	Say(talkie_sd_card_15, 15);
 	Say(talkie_not_found_15, 15);
@@ -984,11 +984,11 @@ public:
 	Say(talkie_blade_array_15, 15);
 	return true;
       }
-      if (!strcmp(arg, "bp")) {
-	Say(talkie_error_in_15, 15);
-	Say(talkie_preset_array_15, 15);
-	return true;
-      }
+  //     if (!strcmp(arg, "bp")) {
+	// Say(talkie_error_in_15, 15);
+	// Say(talkie_preset_array_15, 15);
+	// return true;
+  //     }
       if (!strcmp(arg, "lb")) {
 	Say(talkie_low_battery_15, 15);
 	return true;
@@ -1033,7 +1033,7 @@ public:
   }
 
   void Help() override {
-    #if defined(COMMANDS_HELP) || !defined(OSx)
+    #if defined(COMMANDS_HELP) 
     STDOUT.println("say bof/sd/abort - test error messages");
     STDOUT.println("talkie HEXDATA - play talkie");
     #endif

@@ -18,7 +18,11 @@ public:
     pinMode(PIN, OUTPUT);
   }
   void DeInit() override {
+    #ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+    pinMode(PIN, ANALOG);
+    #else 
     pinMode(PIN, INPUT_ANALOG);
+    #endif
   }
   void Power(bool power) override {
     digitalWrite(PIN, power);
@@ -45,6 +49,10 @@ public:
     refs_ += on ? 1 : -1;
     digitalWrite(PIN, refs_ != 0);
   }
+
+  static bool isOn() {
+    return refs_ != 0;
+  }
 private:
   static uint8_t refs_;
   static uint8_t init_refs_;
@@ -59,12 +67,16 @@ public:
     PowerPinSingleton<PIN>::Init();
   }
   void DeInit() override {
+    Power(false);
     PowerPinSingleton<PIN>::DeInit();
   }
   void Power(bool power) override {
     if (power == on_) return;
     on_ = power;
     PowerPinSingleton<PIN>::Power(power);
+  }
+  bool isOn() {
+    return PowerPinSingleton<PIN>::isOn();
   }
 private:
   bool on_ = false;
@@ -82,6 +94,7 @@ public:
   void Power(bool power) override {
     battery_monitor.SetLoad(power);
   }
+  bool isOn() { return true; }
 };
 
 template<int PIN, int... PINS>
@@ -98,6 +111,9 @@ public:
   void Power(bool power) override {
     pin_.Power(power);
     rest_.Power(power);
+  }
+  bool isOn() {
+    return pin_.isOn() && rest_.isOn();
   }
 private:
   PowerPinWrapper<PIN> pin_;

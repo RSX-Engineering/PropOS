@@ -17,22 +17,22 @@
 #define HANDLER_xUpdate 1
 
 // Handlers
-#define  HANDLER_xBladeInstaller                10      // Blade install 
-#define  HANDLER_xInstaller                     11      // Install settings
-#define  HANDLER_xProfile                       12      // User profile
-#define  HANDLER_xPreset                        13      // Preset
-#define  HANDLER_xPresetList                    14      // List of active presets
+#define  HANDLER_BladeInstaller                10      // Blade install 
+#define  HANDLER_Installer                     11      // Install settings
+#define  HANDLER_Profile                       12      // User profile
+#define  HANDLER_Preset                        13      // Preset
+#define  HANDLER_PresetList                    14      // List of active presets
 
 
 
-#define  HANDLER_xInterpolator                  99      // Any interpolator reference data
-#define  HANDLER_xAnalogLED_Driver_Legacy       100     // Legacy driver
-#define  HANDLER_xAnalogLED_Driver_pPWL         101     // pPWL driver
+#define  HANDLER_Interpolator                  99      // Any interpolator reference data
+#define  HANDLER_AnalogLED_Driver_Legacy       100     // Legacy driver
+#define  HANDLER_AnalogLED_Driver_pPWL         101     // pPWL driver
 
-#define  HANDLER_xColorRenderer_HSLe            110     // HSL enhancer
-#define  HANDLER_xColorRenderer_CRM             111     // Color rendering matrix
-#define  HANDLER_xAnalogLED_Channel             112     // Single/multi-emitter LED Channel
-#define  HANDLER_xAnalogLED                     113     // Single/multi-channel LED Module
+#define  HANDLER_ColorRenderer_HSLe            110     // HSL enhancer
+#define  HANDLER_ColorRenderer_CRM             111     // Color rendering matrix
+#define  HANDLER_AnalogLED_Channel             112     // Single/multi-emitter LED Channel
+#define  HANDLER_AnalogLED                     113     // Single/multi-channel LED Module
 
 #define  HANDLER_PixelDriver                    120     // Pixel driver configuration
 

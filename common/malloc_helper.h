@@ -1,16 +1,7 @@
 #ifndef COMMON_MALLOC_HELPER_H
 #define COMMON_MALLOC_HELPER_H
 
-#ifdef TEENSYDUINO
-
-bool IsHeap(const void* mem) {
-  extern unsigned long _ebss;
-  extern unsigned long _estack;
-  if (mem) return false;
-  return (uint32_t)mem >= _ebss && (uint32_t)mem <= _estack;
-}
-
-#elif defined(PROFFIE_TEST)
+#if defined(PROFFIE_TEST)
 bool IsHeap(const void* mem) {
 #ifdef __APPLE__
   return false; // leak
@@ -19,7 +10,12 @@ bool IsHeap(const void* mem) {
   return (void*)mem >= (void*)&end;
 #endif
 }
-
+#elif defined(ARDUINO_ARCH_ESP32) // ESP architecture
+bool IsHeap(const void* mem) {
+  extern uint32_t _static_data_end[];
+  extern uint32_t _heap_end[];
+  return (uint32_t)mem >= (uint32_t)_static_data_end && (uint32_t)mem <= (uint32_t)_heap_end;
+}
 #else
 
 bool IsHeap(const void* mem) {
@@ -27,6 +23,7 @@ bool IsHeap(const void* mem) {
   extern uint32_t __StackLimit[];
   return (uint32_t)mem >= (uint32_t)__HeapBase && (uint32_t)mem <= (uint32_t)__StackLimit;
 }
+
 #endif
 
 template<class T>

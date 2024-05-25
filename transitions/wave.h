@@ -5,8 +5,8 @@
 // It's based on the Blast effect and is meant to look like a ripple starting
 // at a point on the blade. Unlike other transitions, this effect starts and ends
 // at the same color, and the wave is drawn using COLOR instead of the start/end
-// colors like most transitions to. It's intended to be used with TransitionLoopL
-// or TransitionEffectL, which takes transitions that start and begin with the same
+// colors like most transitions do. It's intended to be used with TransitionLoopL
+// or TransitionEffectL, which take transitions that start and begin with the same
 // color.
 
 template<class COLOR,
@@ -17,6 +17,7 @@ template<class COLOR,
 class TrWaveX : public TransitionBaseX<FADEOUT_MS> {
 public:
   void run(BladeBase *blade) {
+    static_assert(!is_same_type<WAVE_MS, Int<0>>::value, "WAVE_MS cannot be zero");
     wave_size_.run(blade);
     wave_center_.run(blade);
     wave_ms_.run(blade);
@@ -60,8 +61,8 @@ public:
 // TrSparkX generates a wave without Fade over the length of the blade from 
 // SPARK_CENTER. Unlike other transitions, this effect starts and ends
 // at the same color, and the wave is drawn using COLOR instead of the start/end
-// colors like most transitions to. It's intended to be used with TransitionLoopL
-// or TransitionEffectL, which takes transitions that start and begin with the same
+// colors like most transitions do. It's intended to be used with TransitionLoopL
+// or TransitionEffectL, which take transitions that start and begin with the same
 // color.
 
 template<class COLOR,

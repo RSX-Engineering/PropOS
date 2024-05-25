@@ -2,11 +2,6 @@
 // V2 proffiboard configurations. In most cases there should be no need
 // to change anything in this file.
 
-#define VERSION_MAJOR 6
-#define VERSION_MINOR 1
-#define V2
-#define V3
-#define PROFFIEBOARD
 #define USE_I2S
 #define GYRO_CLASS LSM6DS3H
 

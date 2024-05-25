@@ -23,7 +23,8 @@ private:
 public:
   auto getColor(int led) -> decltype(color_.getColor(led)) {
     auto c = color_.getColor(led);
-    c.c = c.c.rotate((rotation_.getInteger(led) & 0x7fff) * 3);
+    // c.c = c.c.rotate((rotation_.getInteger(led) & 0x7fff) * 3); 
+    c.c = c.c.rotate((rotation_.getInteger(led) & 0x7fff)); // 0-32767
     return c;
   }
 };

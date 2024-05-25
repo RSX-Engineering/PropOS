@@ -14,9 +14,15 @@ public:
   static const char* response_footer() { return ""; }
 #ifdef OSX_ENABLE_MTP
   static HardwareSerial& refAdapter() {return Serial;}
+  static bool needBaudCh() {return true;}
 #endif
 };
 
+#if defined(SABERPROP) 
+  #include "HardwareID.h"
+#endif
+
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
 class Serial3Adapter {
 public:
   static void begin() { Serial3.begin(115200); }
@@ -26,11 +32,80 @@ public:
   static const char* response_header() { return "-+=BEGIN_OUTPUT=+-\n"; }
   static const char* response_footer() { return "-+=END_OUTPUT=+-\n"; }
 };
+#elif defined(ARDUINO_ARCH_STM32U5)
+  
+#else  // arhitecture is ESP32 
+
+#include "BLEserial.h"
+#ifdef WIFI_ENABLED_ESP32
+#include "TCPServer_test.h"
+#endif
+class USBSerialAdapter {
+public:
+  static void begin() {
+    // Already configured in Setup().
+    // Serial.begin(115200);
+  }
+  static bool Connected() { return CDCConnected.get(); }
+  static bool AlwaysConnected() { return false; }
+  static Stream& stream() { return USBSerial; }
+  static const char* response_header() { return ""; }
+  static const char* response_footer() { return ""; }
+#ifdef OSX_ENABLE_MTP
+#ifndef ESP_HWDCD_ENABLED
+  static USBCDC& refAdapter() {return USBSerial;}
+#else 
+  static HWCDC& refAdapter() {return USBSerial;}
+#endif
+  static bool needBaudCh() {return true;}
+#endif
+};
+
+
+class BLSerialAdapter {
+public:
+  static void begin() {
+    // Already configured in Setup().
+    // Serial.begin(115200);
+  }
+  static bool Connected() { return BLSERIAL.hasClient(); }
+  static bool AlwaysConnected() { return false; }
+  static Stream& stream() { return BLSERIAL; }
+  static const char* response_header() { return ""; }
+  static const char* response_footer() { return ""; }
+#ifdef OSX_ENABLE_MTP
+  static BLE_Serial& refAdapter() {return BLSERIAL;}
+  static bool needBaudCh() {return false;}
+  static char* name() {return "BLSerialAdapter";}
+#endif
+};
+#ifdef WIFI_ENABLED_ESP32
+class WIFISerialAdapter {
+public:
+  static void begin() {
+    // Already configured in Setup().
+    // Serial.begin(115200);
+  }
+  static bool Connected() { return wifiSerial.hasClient(); }
+  static bool AlwaysConnected() { return false; }
+  static Stream& stream() { return wifiSerial; }
+  static const char* response_header() { return ""; }
+  static const char* response_footer() { return ""; }
+#ifdef OSX_ENABLE_MTP
+  static WifiSerialManager& refAdapter() {return wifiSerial;}
+  static bool needBaudCh() {return false;}
+  static char* name() {return "WifiSerialAdapter";}
+#endif
+};
+#endif
+
+#endif
 
 #ifdef USB_CLASS_WEBUSB
 class WebUSBSerialAdapter {
 public:
-  static void begin() { WebUSBSerial.begin(115200); }
+  // static void begin() { WebUSBSerial.begin(115200); }
+  static void begin() { WebUSBSerial.begin(SERIAL_ASCII_BAUD); }
   // static bool Connected() { return !!WebUSBSerial; }
   static bool Connected() { return true; }
   static bool AlwaysConnected() { return true; }
@@ -38,82 +113,6 @@ public:
   static const char* response_header() { return "-+=BEGIN_OUTPUT=+-\n"; }
   static const char* response_footer() { return "-+=END_OUTPUT=+-\n"; }
 };
-#endif
-
-#ifdef RFID_SERIAL
-class RFIDParser : public Looper {
-public:
-  RFIDParser() : Looper() {}
-  const char* name() override { return "Parser"; }
-  void Setup() override {
-    RFID_SERIAL.begin(9600);
-  }
-
-#define RFID_READCHAR() do {						\
-  state_machine_.sleep_until_ = millis();				\
-  while (!RFID_SERIAL.available()) {					\
-    if (millis() - state_machine_.sleep_until_ > 200) goto retry;	\
-    YIELD();								\
-  }									\
-  getc();								\
-} while (0)
-
-  int c, x;
-  uint64_t code;
-
-  void getc() {
-    c = RFID_SERIAL.read();
-    if (monitor.IsMonitoring(Monitoring::MonitorSerial)) {
-      default_output->print("SER: ");
-      default_output->println(c, HEX);
-    }
-  }
-
-  void Loop() override {
-    STATE_MACHINE_BEGIN();
-    while (true) {
-    retry:
-      RFID_READCHAR();
-      if (c != 2) goto retry;
-      code = 0;
-      for (x = 0; x < 10; x++) {
-	RFID_READCHAR();
-	code <<= 4;
-	if (c >= '0' && c <= '9') {
-	  code |= c - '0';
-	} else if (c >= 'A' && c <= 'F') {
-	  code |= c - ('A' - 10);
-	} else {
-	  goto retry;
-	}
-      }
-      RFID_READCHAR();
-      x = code ^ (code >> 24);
-      x ^= (x >> 8) ^ (x >> 16);
-      x &= 0xff;
-      if (c != x) goto retry;
-      RFID_READCHAR();
-      if (c == 3) {
-	default_output->print("RFID: ");
-	for (int i = 36; i >= 0; i-=4) {
-	  default_output->print((int)((code >> i) & 0xf), HEX);
-	}
-	default_output->println("");
-	for (size_t i = 0; i < NELEM(RFID_Commands); i++) {
-	  if (code == RFID_Commands[i].id) {
-	    CommandParser::DoParse(RFID_Commands[i].cmd, RFID_Commands[i].arg);
-	  }
-	}
-      }
-    }
-    STATE_MACHINE_END();
-  }
-
-private:
-  StateMachineState state_machine_;
-};
-
-StaticWrapper<RFIDParser> rfid_parser;
 #endif
 
 
@@ -141,10 +140,8 @@ StaticWrapper<RFIDParser> rfid_parser;
 #define BOARD_SERIAL    0x22040000    // year, month, nr 
 #define BOARD_ERROR_CNT 0x0000        // zero error // TODO repplace with variable that actually counts error
 
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
 #include <dosfs_api.h>
-
-#ifdef ULTRA_PROFFIE
-  #include "../common/xProdSerial.h"
 #endif
 
 template<class SA> /* SA = Serial Adapter */
@@ -156,15 +153,18 @@ public:
     Serial_Protocol() 
     {
       this->RefreshProtocolFrame();
+      _sessionState = false;
+      savedDefault_output = NULL;
+      savedStdout_output = NULL;
     }
     // Simple setter of session state  status   static
-    static void SetSession(bool status)
+    void SetSession(bool status)
     {   
         StubActiveSerial(status);
         _sessionState = status;
     }
     // Simple getter of session state status 
-    static bool GetSession()       // static
+    bool GetSession()       // static
     {
         return _sessionState;
     }
@@ -194,8 +194,9 @@ public:
     {                             // override
         // STATE_MACHINE_BEGIN();
         // while (true) {
-            // while (!SA::Connected()) YIELD();
-
+          #ifdef ARDUINO_ARCH_ESP32
+            if (SA::Connected()) {
+          #endif
             // while (SA::Connected()) {
                 SA::stream().flush();
                 // bytesAvailable = SA::stream().available();
@@ -239,8 +240,14 @@ public:
                         this->SendProtocolAnswer(this->_trID, 0, this->_flags, NULL);
                         this->RefreshProtocolFrame();
                     } else {
+                      #ifdef ARDUINO_ARCH_STM32L4   // STM architecture
                       SA::stream().read( (uint8_t*)&_protocolFrame[this->_frameBytesNr], this->_dataLen);
                       SA::stream().read( (uint8_t*)&_protocolFrame[this->_frameBytesNr + this->_dataLen], 4);
+                      #else 
+                      SA::stream().readBytes( (uint8_t*)&_protocolFrame[this->_frameBytesNr], this->_dataLen);
+                      SA::stream().readBytes( (uint8_t*)&_protocolFrame[this->_frameBytesNr + this->_dataLen], 4);
+                      #endif
+                      
                       // SA::stream().read( (uint8_t*)(&_checkSum), 4);
                       this->_checkSum = *(uint32_t*)&_protocolFrame[this->_frameBytesNr + this->_dataLen];
                       if(CalculateCRC32((uint8_t*)&_protocolFrame[0], this->_frameBytesNr + this->_dataLen, 1) != this->_checkSum)
@@ -263,7 +270,9 @@ public:
                     }
                 }
 
-
+          #ifdef ARDUINO_ARCH_ESP32
+          }
+          #endif
             // } // end Connected 
         // } // end true
         // STATE_MACHINE_END();
@@ -296,7 +305,7 @@ public:
     *   @param : description
     *   @retval return value description
     */
-    static void StubActiveSerial(bool stubType)// __attribute__((optimize("O0")))
+    void StubActiveSerial(bool stubType)// __attribute__((optimize("O0")))
     {
       if(stubType) {
         SA::stream().flush();
@@ -304,10 +313,16 @@ public:
         savedStdout_output = stdout_output;
         default_output = &EmptySerial;
         stdout_output = &EmptySerial;
+         
+        if(SA::needBaudCh()) {
+          SA::refAdapter().end();
+          #ifdef ARDUINO_ARCH_ESP32
+          SA::refAdapter().setRxBufferSize(1056);
+          // delay(100);
+          #endif
+          SA::refAdapter().begin(SERIAL_BIN_BAUD);
 
-         SA::refAdapter().end();
-         SA::refAdapter().begin(SERIAL_BIN_BAUD);
-
+		    }
       } else {
         default_output = savedDefault_output;
         stdout_output = savedStdout_output;
@@ -353,14 +368,24 @@ public:
         SA::stream().write( (uint8_t*)(&lCheckSum), 4);
         SA::stream().flush();
 
-        if(!_sessionState) {
+        if(!_sessionState && SA::needBaudCh()) {
            SA::refAdapter().end();
+          #ifdef ARDUINO_ARCH_ESP32
+          SA::refAdapter().setRxBufferSize(1056);
+          #endif
            SA::refAdapter().begin(SERIAL_ASCII_BAUD);
         }
 
         if(reset)
-        {
-          STM32.reset(); // resseting 
+        { 
+          #ifdef ARDUINO_ARCH_STM32L4   // STM architecture
+          STM32.reset(); // resseting
+          #elif defined(ARDUINO_ARCH_STM32U5) 
+            // TODO u5: add reset 
+          #elif defined(ARDUINO_ARCH_ESP32)
+          // ESP.restart();
+          ESP.deepSleep(0);   // restart() does not reset all peripherals, deep sleep with immediate wakeup apparently does
+          #endif
         }
     }
     /* brief    : Read and set protocol values
@@ -368,10 +393,16 @@ public:
     *  retval   : void
     */
     void ReadAndSetHeader() // __attribute__((optimize("O0")))
-    {
+    {   
+      #ifdef ARDUINO_ARCH_STM32L4   // STM architecture
         SA::stream().read( (uint8_t*)&_protocolFrame[0], 2);
         SA::stream().read( (uint8_t*)&_protocolFrame[2], 2); 
         SA::stream().read( (uint8_t*)&_protocolFrame[4], 2);
+      #else 
+        SA::stream().readBytes( (uint8_t*)&_protocolFrame[0], 2);
+        SA::stream().readBytes( (uint8_t*)&_protocolFrame[2], 2); 
+        SA::stream().readBytes( (uint8_t*)&_protocolFrame[4], 2);
+      #endif
 
         this->_trID = *(uint16_t*)&_protocolFrame[0];
         this->_dataLen = *(uint16_t*)&_protocolFrame[2];
@@ -387,11 +418,17 @@ public:
     uint32_t CalculateCRC32(uint8_t *buffer, uint16_t nrOfBytes, uint8_t reset) // __attribute__((optimize("O0")))
     {   
         uint32_t calcCrc = 0;
-
+        #ifdef ARDUINO_ARCH_STM32L4   // STM architecture
         if(reset)
           calcCrc = HAL_CRC_Calculate(&stm32l4_crc, (uint32_t*)buffer, nrOfBytes);
         else 
           calcCrc = HAL_CRC_Accumulate(&stm32l4_crc, (uint32_t*)buffer, nrOfBytes);
+        #else 
+        if(reset)
+          calcCrc = STCrc_impl.CRC_Calculate((uint32_t*)buffer, nrOfBytes);
+        else 
+          calcCrc = STCrc_impl.CRC_Acumulate((uint32_t*)buffer, nrOfBytes);
+        #endif
 
         return calcCrc;
     }
@@ -424,11 +461,13 @@ public:
     uint16_t _flags;
     uint32_t _checkSum;
     uint8_t _protocolFrame[SERIAL_PROTOCOL_LEN];
-    static bool _sessionState;
-    static Print* savedDefault_output;
-    static Print* savedStdout_output;
+    bool _sessionState;
+    Print* savedDefault_output;
+    Print* savedStdout_output;
 };  // end Serial_Protocol
-
+#if defined(ARDUINO_ARCH_ESP32) || defined(ARDUINO_ARCH_STM32U5)   // ESP architecture
+#define F_MAXPATH 128
+#endif
 template<class SA> /* SA = Serial Adapter */
 class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
 {
@@ -443,8 +482,8 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
   }
 
   bool Parse(const char* cmd, const char* arg) override {
-    if (!strcmp(cmd, "openSession"))
-    { 
+    if (!strcmp(cmd, "openSession") && stdout_output == &SA::stream())
+    {
       // mtpUart.SetSession(true);
       STDOUT.println("Opening Session...\n");
       // TODO find a way to stop all current working service because the session is captured by the the PC 
@@ -472,7 +511,7 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
   }
 
   void Help() override {
-    #if defined(COMMANDS_HELP) || !defined(OSx)
+    #if defined(COMMANDS_HELP) 
     STDOUT.println(" openSession - open uart MTP ");
     #endif
   }
@@ -509,7 +548,11 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
       
       int16_t scanForNULL(uint8_t *buffer) {
         int16_t pfi = -1;
+        #ifdef ARDUINO_ARCH_STM32L4   // STM architecture
         for(int16_t i=0; i < F_MAXPATH; i++ )
+        #else
+        for(int16_t i=0; i < 128; i++ )
+        #endif
         {
           if(*(buffer + i) == 0) {
             pfi = i;
@@ -578,9 +621,9 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
         {
           this->_lockState = 1;                                   // reset to default 
           *cmd = trOk;
-          #ifndef ULTRA_PROFFIE
-          *(uint16_t*)(cmd + 1)  = (uint16_t)BOARD_HWID;          // HW VERSION 
-          *(uint16_t*)(cmd + 3)  = (uint16_t)BOARD_FWID;          // FW VERSION
+          #if defined(PROFFIEBOARD) || ( defined(SABERPROP) && SABERPROP_VERSION == 'P')
+          *(uint32_t*)(cmd + 1)  = (uint32_t)17966079;          // HW VERSION 
+          // *(uint16_t*)(cmd + 3)  = (uint16_t)BOARD_FWID;          // FW VERSION
           *(uint32_t*)(cmd + 5)  = (uint32_t)BOARD_SERIAL;        // SERIAL Number
           #else 
           *(uint32_t*)(cmd + 1)  = PROFFIE_HDID.xGetHwId();          // HW VERSION 
@@ -650,8 +693,14 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
             *cmd = trLocked;
             *(cmd+1) = 0;
           } else {                  // Session is unlocked , perform format 
-            *cmd = trOk; 
+            *cmd = trOk;
+            #ifdef ARDUINO_ARCH_STM32L4   // STM architecture
             res = f_format(0);        // perform format
+            #elif ARDUINO_ARCH_STM32U5
+              // TODO u5: add format logic 
+            #elif ARDUINO_ARCH_ESP32
+            res = DOSFS.format();    // TODO: uncomment when arduino board package is running
+            #endif
             *(cmd+ 1)= (uint8_t)res; 
             }
             byteReturn = 2;
@@ -770,9 +819,16 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
 
             reqOffset = *(uint32_t*)(cmd+1);    
             if(reqOffset != 0xFFFFFFFF) {
+              #if defined(ARDUINO_ARCH_STM32L4) || defined(ARDUINO_ARCH_STM32U5)
               currOffset = _file.position();
               if(currOffset != reqOffset)
                 _file.seek(reqOffset);
+              #elif defined(ARDUINO_ARCH_ESP32) 
+              _file.seek(reqOffset, SeekSet);
+              currOffset = _file.position();
+              if(currOffset != reqOffset)
+                _file.seek(reqOffset, SeekSet);
+              #endif
             }
 
             res = _file.write((cmd+7), *(uint16_t*)(cmd+5));
@@ -823,8 +879,11 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
         // ------ FS_INfo , file system info ------------------------------------------------------
         case FS_Info:
         {
+          #ifdef ARDUINO_ARCH_STM32L4   // STM architecture
           FSInfo localInfo;
-          
+          #else 
+
+          #endif
           if(this->_lockState) {
             *cmd = trLocked;
             for(uint16_t i=1; i < 51; i++)
@@ -838,7 +897,7 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
             } else {
               *(cmd + 2) = true;  // was initialy mounte and is mounted now 
             }
-
+            #ifdef ARDUINO_ARCH_STM32L4   // STM architecture
             if(DOSFS.info(localInfo)) *cmd = trOk;
             else *cmd = trFail;
             
@@ -854,6 +913,30 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
             *(uint32_t*)(cmd+39) = (uint32_t)(localInfo.maxOpenFiles >> 32);
             *(uint32_t*)(cmd+43) = (uint32_t)localInfo.maxPathLength;
             *(uint32_t*)(cmd+47) = (uint32_t)(localInfo.maxPathLength >> 32);
+            #else
+            #ifdef ARDUINO_ARCH_ESP32
+            *(uint32_t*)(cmd+3) = (uint32_t)DOSFS.totalBytes();
+            *(uint32_t*)(cmd+7) = (uint32_t)(DOSFS.totalBytes() >> 32);
+            *(uint32_t*)(cmd+11) = (uint32_t)DOSFS.usedBytes();
+            *(uint32_t*)(cmd+15) = (uint32_t)(DOSFS.usedBytes() >> 32);
+            #elif ARDUINO_ARCH_STM32U5
+            uint64_t volumesize, usedBytes;
+            volumesize = DOSFS.totalBytes();
+            usedBytes = volumesize - DOSFS.freeBytes();
+            *(uint32_t*)(cmd+3) = (uint32_t)volumesize;
+            *(uint32_t*)(cmd+7) = (uint32_t)(volumesize >> 32);
+            *(uint32_t*)(cmd+11) = (uint32_t)usedBytes;
+            *(uint32_t*)(cmd+15) = (uint32_t)(usedBytes >> 32);
+            #endif
+            *(uint32_t*)(cmd+19) = (uint32_t)512;
+            *(uint32_t*)(cmd+23) = 0;
+            *(uint32_t*)(cmd+27) = (uint32_t)512;
+            *(uint32_t*)(cmd+31) = 0;
+            *(uint32_t*)(cmd+35) = (uint32_t)16;
+            *(uint32_t*)(cmd+39) = 0;
+            *(uint32_t*)(cmd+43) = (uint32_t)128;
+            *(uint32_t*)(cmd+47) = 0;
+            #endif
           }          
 
             return 51;
@@ -1168,27 +1251,57 @@ class Serial_Transfer : public Serial_Protocol<SA>, CommandParser,Looper
     uint8_t _lockState;
     uint32_t _sessionTimeStamp;
 };
-
-template<class SA> bool Serial_Protocol<SA>::_sessionState = false;
-template<class SA> Print *Serial_Protocol<SA>::savedDefault_output = NULL;
-template<class SA> Print *Serial_Protocol<SA>::savedStdout_output = NULL;
-// template<class SA> File Serial_Transfer<SA>::_file = NULL; 
+// template<class SA> bool Serial_Protocol<SA>::_sessionState = false;
+// template<class SA> Print *Serial_Protocol<SA>::savedDefault_output = NULL;
+// template<class SA> Print *Serial_Protocol<SA>::savedStdout_output = NULL;
+// template<class SA> File Serial_Transfer<SA>::_file = NULL;
+#ifdef ARDUINO_ARCH_ESP32
+StaticWrapper<Serial_Transfer<USBSerialAdapter>> mtpUSB;
+#endif
 StaticWrapper<Serial_Transfer<SerialAdapter>> mtpUart;
 
+// StaticWrapper<Serial_Transfer<BLSerialAdapter, false>> mtpUart;
+#ifdef WIFI_ENABLED_ESP32
+StaticWrapper<Serial_Transfer<WIFISerialAdapter>> mtpWifi;
+#endif
+// simple class that look at status of mtps , we can have more 
+class MTPS_status
+{ 
+  //
+  public: 
+  static bool GetSession()
+  {
+    if(
+      mtpUart->GetSession() 
+    #ifdef ARDUINO_ARCH_ESP32
+    || 
+    mtpUSB->GetSession()
+    #ifdef WIFI_ENABLED_ESP32
+    ||
+    mtpWifi->GetSession()
+    #endif
+    #endif
+    )
+      return true;
+    
+    return false;
+  }
+
+};
 #endif  // end mtp
 
 // Command-line parser. Easiest way to use it is to start the arduino
 // serial monitor.
 template<class SA> /* SA = Serial Adapter */
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
-class Parser : Looper, StateMachine, xPowerSubscriber {
+#ifdef SABERPROP
+class Parser : Looper, StateMachine, PowerSubscriber {
 public:
-  Parser() : Looper(), xPowerSubscriber(pwr4_CPU) {}
-#else // nOSx
-class Parser : Looper, StateMachine, xPowerSubscriber {
+  Parser() : Looper(), PowerSubscriber(pwr4_CPU) {}
+#else 
+class Parser : Looper, StateMachine {
 public:
   Parser() : Looper() {}
-#endif // OSx
+#endif 
 
   const char* name() override { return "Parser"; }
 
@@ -1198,33 +1311,27 @@ public:
 
   void Loop() override {
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
-    uint32_t CPUtimeout = 300000;   // Exceptional power timeout for serial parser 
-#endif
+    #if defined(SABERPROP) //  Saberprop and UltraProffies
+        uint32_t CPUtimeout = 300000;   // Exceptional power timeout for serial parser 
+    #endif
 
     STATE_MACHINE_BEGIN();
     while (true) {
       while (!SA::Connected()) YIELD();
       if (!SA::AlwaysConnected()) {
-        #ifndef OSx
-          STDOUT << "Welcome to ProffieOS " << version << ". Type 'help' for more info.\n";        
-        #endif // OSx
+        // STDOUT << "Welcome to ProffieOS " << version << ". Type 'help' for more info.\n";        
       }
 
       while (SA::Connected()) {
         while (!SA::stream().available()) YIELD();
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
-      RequestPower(&CPUtimeout);   // Increase CPU timeout to 5 minutes if parser is active (defaults to 1 minute)
-#endif
+        #if defined(SABERPROP) //  Saberprop and UltraProffies
+              RequestPower(&CPUtimeout);   // Increase CPU timeout to 5 minutes if parser is active (defaults to 1 minute)
+        #endif
 
 #ifdef OSX_ENABLE_MTP
-        if(Serial_Protocol<SerialAdapter>::GetSession())
+        if(MTPS_status::GetSession())  // Serial_Protocol<SerialAdapter>::GetSession()
         {   
-            //mtpUart->ConsumeRx(MTP_UART_TIMEOUT_SHORT);
             YIELD();
-            // mtpUart->RefreshProtocolFrame();
-            // while(Serial_Protocol<SerialAdapter>::GetSession())
-            //   mtpUart->Loop();
         }
         else
         {
@@ -1232,17 +1339,6 @@ public:
 
         int c = SA::stream().read();
         if (c < 0) { break; }
-#if 0
-        STDOUT.print("GOT:");
-        STDOUT.println(c);
-#endif
-#if 0
-        if (monitor.IsMonitoring(Monitoring::MonitorSerial) &&
-            default_output != &SA::stream()) {
-          default_output->print("SER: ");
-          default_output->println(c, HEX);
-        }
-#endif
         if (c == '\n' || c == '\r') {
           if (cmd_) ParseLine();
           len_ = 0;
@@ -1305,21 +1401,7 @@ public:
     } else {
       e = nullptr;
     }
-    if (monitor.IsMonitoring(Monitoring::MonitorSerial) &&
-        default_output != &SA::stream()) {
-      default_output->print("Received command: ");
-      default_output->print(cmd);
-      if (e) {
-        default_output->print(" arg: ");
-        default_output->print(e);
-      }
-      default_output->print(" HEX ");
-      for (size_t i = 0; i < strlen(cmd); i++) {
-        default_output->print(cmd[i], HEX);
-        default_output->print(" ");
-      }
-      default_output->println("");
-    }
+
     if (!CommandParser::DoParse(cmd, e)) {
       STDOUT.print("Whut? :");
       STDOUT.println(cmd);
@@ -1336,6 +1418,13 @@ private:
 };
 
 StaticWrapper<Parser<SerialAdapter>> parser;
+#ifdef ARDUINO_ARCH_ESP32 // ESP architecture
+StaticWrapper<Parser<BLSerialAdapter>> bl_parser;
+StaticWrapper<Parser<USBSerialAdapter>> usb_parser;
+#ifdef WIFI_ENABLED_ESP32
+StaticWrapper<Parser<WIFISerialAdapter>> wifi_parser;
+#endif
+#endif
 
 #ifdef ENABLE_SERIAL
 StaticWrapper<Parser<Serial3Adapter>> serial_parser;
@@ -1417,7 +1506,7 @@ class SerialCommands : public CommandParser {
     return false;
   }
   void Help() override {
-    #if defined(COMMANDS_HELP) || !defined(OSx)
+    #if defined(COMMANDS_HELP) 
     // STDOUT.println(" hm13pin PIN - configure HM13 PIN");
     // STDOUT.println(" hm13name NAME - configure HM13 NAME");
     STDOUT.println(" get_ble_config - show BLE PIN");

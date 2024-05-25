@@ -2,10 +2,22 @@
 #define SOUND_EFFECT_H
 
 #include <algorithm>
+#include "../common/atomic.h"
 #include "../common/file_reader.h"
 
 class Effect;
 Effect* all_effects = NULL;
+
+// Zero-indexed
+int current_alternative = 0;
+// num_alternatives == 3 means alt000/, alt001/, alt002/
+int num_alternatives = 0;
+
+constexpr bool PO_isDigit(char s) { return s >= 0 && s <= '9'; }
+bool isAllDigits(const char* s) {
+  for (;*s;s++) if(!PO_isDigit(*s)) return false;
+  return true;
+}
 
 // Effect represents a set of sound files.
 // We keep track of the minimum number found, the maximum number found, weather
@@ -23,21 +35,25 @@ class Effect {
   // is to be smaller than using the filename to identify the file.
   class FileID {
    public:
-    FileID(const Effect* effect, int file) : effect_(effect), file_(file) {}
-    FileID() : effect_(nullptr), file_(0) {}
+    FileID(Effect* effect, int file, int sub, int alt) : effect_(effect), file_(file), sub_id_(sub), alt_(alt) {}
+    FileID(Effect* effect, int file, int sub) : effect_(effect), file_(file), sub_id_(sub), alt_(current_alternative) {}
+    FileID() : effect_(nullptr), file_(0), sub_id_(0) {}
 
     bool operator==(const FileID& other) const {
-      return other.effect_ == effect_ && file_ == other.file_;
+      return other.effect_ == effect_ &&
+	file_ == other.file_ &&
+	sub_id_ == other.sub_id_ &&
+	alt_ == other.alt_;
     }
 
     operator bool() const { return effect_ != nullptr; }
 
-    void GetName(char *filename) {
-      effect_->GetName(filename, file_);
-    }
+    void GetName(char *filename) { effect_->GetName(filename, this); }
 
-    const Effect* GetEffect() const { return effect_; }
+    Effect* GetEffect() const { return effect_; }
     int GetFileNum() const { return file_; }
+    int GetSubId() const { return sub_id_; }
+    int GetAlt() const { return alt_; }
 
     // Maybe this should always use effect_->following_ ??
     FileID GetFollowing(Effect* effect) {
@@ -45,15 +61,17 @@ class Effect {
 	  effect_->paired_ &&
 	  effect_->files_found() == effect->files_found() &&
 	  effect->selected_ == -1) {
-	return FileID(effect, file_);
+	return FileID(effect, file_, effect->random_subid(file_));
       } else {
 	return effect->RandomFile();
       }
     }
 
    private:
-    const Effect* effect_;
-    int file_;
+    Effect* effect_;
+    uint16_t file_;
+    uint8_t sub_id_;
+    uint8_t alt_;
   };
 
   enum Extension {
@@ -116,21 +134,19 @@ class Effect {
     file_type_ = file_type;
     next_ = all_effects;
     all_effects = this;
-    #ifdef OSx
-      persistent_ = false;
-    #endif
+    persistent_ = false;
     reset();
   }
 
-#ifdef OSx
   void SetPersistence(bool persistent) { persistent_ = persistent; }
-#endif // OSx
 
   void reset() {
-    min_file_ = 20000;
+    min_file_ = 127;
     max_file_ = -1;
+    sub_files_ = 0;
     digits_ = 0;
     unnumbered_file_found_ = false;
+    found_in_alt_dir_ = false;
     file_pattern_ = FilePattern::UNKNOWN;
     ext_ = UNKNOWN;
     selected_ = -1;
@@ -139,9 +155,23 @@ class Effect {
     volume_ = 100;
     paired_ = false;
   }
+  static int altnum(const char* s) {
+    if (!startswith("alt", s)) return -1;
+    if (!PO_isDigit(s[3])) return -1;
+    if (!PO_isDigit(s[4])) return -1;
+    if (!PO_isDigit(s[5])) return -1;
+    if (s[6] != '/') return -1;
+    return strtol(s + 3, nullptr, 10);
+  }
 
   bool Scan(const char *filename) {
     FilePattern type_if_found = FilePattern::FLAT;
+
+    int alt = altnum(filename);
+    if (alt != -1) {
+      filename += 7;
+    }
+    
     const char *rest = startswith(name_, filename);
     if (!rest) return false;
     if (*rest == '/') {
@@ -170,19 +200,37 @@ class Effect {
     } else {
       char *end;
       n = strtol(rest, &end, 10);
-      if (n <= 0) return false;
+      if (n < 0 || end == rest) return false;
       max_file_ = std::max<int>(max_file_, n);
       min_file_ = std::min<int>(min_file_, n);
       if (*rest == '0') {
         digits_ = end - rest;
       }
+      rest = end;
     }
 
+    if (type_if_found == FilePattern::NONREDUNDANT_SUBDIRS &&
+	*rest == '/' &&
+	PO_isDigit(rest[1]) &&
+	PO_isDigit(rest[2]) &&
+	PO_isDigit(rest[3])) {
+      int sub = strtol(rest+1, nullptr, 10);
+      sub_files_ = std::max<int>(sub_files_, sub + 1);
+      rest += 4;
+    }
+
+    // Should be at final dot.
+    if (*rest != '.') return false;
 
     file_pattern_ = type_if_found;
     // STDOUT << "Counting " << filename << " as " << name_ << "\n";
     // STDOUT.print("Counting "); STDOUT.print(filename); STDOUT.print(" as "); STDOUT.println(name_);
     num_files_++;
+    if (alt != -1) {
+      num_alternatives = std::max<int>(num_alternatives, alt + 1);
+      found_in_alt_dir_ = true;
+    }
+    
     return true;
   }
 
@@ -208,6 +256,10 @@ class Effect {
       if (unnumbered_file_found_) {
         STDOUT.print("one unnumbered file");
       }
+      int expected_files = files_found();
+      if (found_in_alt_dir_) {
+	expected_files *= num_alternatives;
+      }
       switch (file_pattern_) {
         case FilePattern::UNKNOWN:
         case FilePattern::FLAT:
@@ -217,9 +269,16 @@ class Effect {
           break;
         case FilePattern::NONREDUNDANT_SUBDIRS:
           STDOUT.print(" in efficient subdirs");
+	  break;
       }
-      if (files_found() != (size_t)num_files_) {
-	STDOUT << " SOME FILES ARE MISSING! " << files_found() << " != " << num_files_;
+      if (sub_files_) {
+	STDOUT.print(" with ");
+	STDOUT.print(sub_files_);
+	STDOUT.print(" sub files ");
+	expected_files *= sub_files_;
+      }
+      if (expected_files != (int)num_files_) {
+	STDOUT << " SOME FILES ARE MISSING! " << expected_files << " != " << num_files_;
       }
       STDOUT.print(" in ");
       STDOUT.print(directory_);
@@ -234,6 +293,8 @@ class Effect {
     STDOUT.println("Done listing effects.");
   }
 
+  // Note that this is sligtly misnamed now.
+  // It returns the number of different selectable choices, but there may be more files.
   size_t files_found() const {
     size_t ret = 0;
     if (min_file_ <= max_file_) {
@@ -245,13 +306,26 @@ class Effect {
     return ret;
   }
 
+
+  size_t number_of_alternatives() const {
+    if (!found_in_alt_dir_) return 1;
+    return num_alternatives;
+  }
+
+  size_t number_of_subfiles() const {
+    if (!sub_files_) return 1;
+    return sub_files_;
+  }
+
+  size_t expected_files() const {
+    return files_found() * number_of_alternatives() * number_of_subfiles();
+  }
+  
   size_t get_min_file() const { return min_file_; }
 	
   const char* get_directory() const { return directory_; }
 
-  #ifdef OSx
-   void set_directory(const char* dir)  {  directory_ = dir; }
-  #endif
+  void set_directory(const char* dir)  {  directory_ = dir; }
 	
   operator bool() const { return files_found() > 0; }
 
@@ -283,8 +357,39 @@ class Effect {
   }
 
 #ifdef NO_REPEAT_RANDOM
-  int last_;
+  int16_t last_ = -1;
+  int16_t last_subid_ = -1;
+
+  static int randomize(int N, int last) {
+    int n = rand() % N;
+    if (n == last) {
+      switch (N) {
+      default:
+	n = rand() % (N - 1);
+	if (n >= last) n++;
+	break;
+      case 2:
+	if (n == last) n = rand() % N;
+      case 1:
+	break;
+      }
+    }
+    return n;
+  }
+#define RANDOMIZE(N, LAST) randomize((N), (LAST))
+#else
+#define RANDOMIZE(N, LAST) (rand() % (N))  
 #endif
+
+
+  int random_subid(int filenum) {
+    if (!sub_files_) return 0;
+    int ret = RANDOMIZE(sub_files_, last_ == filenum ? last_subid_ : -1);
+#ifdef NO_REPEAT_RANDOM
+    last_subid_ = ret;
+#endif    
+    return ret;
+  }
 
   FileID RandomFile() {
     int num_files = files_found();
@@ -295,23 +400,20 @@ class Effect {
     }
     int n;
     if (selected_ != -1) {
-      n = selected_;
+      n = std::min<int>(selected_, num_files - 1);
+    } else if (SaberBase::sound_number != -1 &&
+	       (file_type_ == FileType::SOUND || paired_)) {
+      n = std::min<int>(SaberBase::sound_number, num_files - 1);
     } else {
-    n = rand() % num_files;
-#ifdef NO_REPEAT_RANDOM
-      switch (num_files) {
-      default:
-	while (n == last_) n = rand() % num_files;
-	break;
-      case 2:
-	if (n == last_) n = rand() % num_files;
-      case 1:
-	break;
-      }
-      last_ = n;
-#endif
+      n = RANDOMIZE(num_files, last_);
     }
-    return FileID(this, n);
+    int subid = random_subid(n);
+
+#ifdef NO_REPEAT_RANDOM
+    last_ = n;
+#endif    
+
+    return FileID(this, n, subid);
   }
 
   bool Play(char *filename) {
@@ -321,10 +423,28 @@ class Effect {
     return true;
   }
 
+  static void addNumber(char* filename, int n, int digits) {
+    char buf[12];
+    itoa(n, buf, 10);
+    char *j = filename + strlen(filename);
+    int num_digits = strlen(buf);
+    while (num_digits < digits) {
+      *j = '0';
+      ++j;
+      num_digits++;
+    }
+    memcpy(j, buf, strlen(buf) + 1);
+  }
+
   // Get the name of a specific file in the set.
-  void GetName(char *filename, int n) const {
+  void GetName(char *filename, FileID* fileid) const {
     strcpy(filename, directory_);
     if (*directory_) strcat(filename, "/");
+    if (found_in_alt_dir_) {
+      strcat(filename, "alt");
+      addNumber(filename, fileid->GetAlt(), 3);
+      strcat(filename, "/");
+    }
     strcat(filename, name_);
     switch (file_pattern_) {
       case FilePattern::UNKNOWN:
@@ -337,19 +457,16 @@ class Effect {
       case FilePattern::NONREDUNDANT_SUBDIRS:
         strcat(filename, "/");
     }
+    int n = fileid->GetFileNum();
     n += min_file_;
     // n can be max_file_ + 1, which means pick the file without digits.
     if (n <= max_file_) {
-      char buf[12];
-      itoa(n, buf, 10);
-      char *j = filename + strlen(filename);
-      int num_digits = strlen(buf);
-      while (num_digits < digits_) {
-        *j = '0';
-        ++j;
-        num_digits++;
-      }
-      memcpy(j, buf, strlen(buf) + 1);
+      addNumber(filename, n, digits_);
+    }
+
+    if (sub_files_) {
+      strcat(filename, "/");
+      addNumber(filename, fileid->GetSubId(), 3);
     }
 
     switch (ext_) {
@@ -361,11 +478,7 @@ class Effect {
       case Binary: strcat(filename, ".bin"); break;
       default: break;
     }
-    // #if (defined(OSx) && defined(DIAGNOSE_AUDIO)) || !defined(OSx)  
-    #ifndef OSx // not good for repeats
-    STDOUT.print("Playing ");
-    STDOUT.println(filename);
-    #endif
+
   }
 
   void SetPaired(bool i) { paired_ = i; }
@@ -373,6 +486,7 @@ class Effect {
   void SetVolume(uint8_t v) { volume_ = v; }
   uint8_t GetVolume() const { return volume_; }
   const char* GetName() const { return name_; }
+  FileType GetFileType() const { return file_type_; }
 
   // Returns true if file was identified.
   static void ScanAll(const char *dir, const char* filename) {
@@ -400,113 +514,126 @@ class Effect {
     }
   }
 
+#ifdef ENABLE_SD
+  class Scanner {
+    char fname[128];
+    const char* font_path_ptr;
 
-  static void ScanCurrentDirectory() {
-    LOCK_SD(true);
-    for (Effect* e = all_effects; e; e = e->next_) {
-        #ifndef OSx
-          e->reset();
-        #else
-          // e->reset();
-          if (!e->persistent_) e->reset();    // don't reset persistent effects
-        #endif
+    bool isNameDigits(const char* prefix, const char* dir) const {
+      return startswith(prefix, dir) && isAllDigits(dir + strlen(prefix));
     }
 
-    for (const char* dir = current_directory; dir; dir = next_current_directory(dir)) {
-      #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+    bool ShouldScan(const char* dir) const {
+      if (isNameDigits("alt", dir) && strlen(dir) == 6) return true;
+      if (isNameDigits("", dir)) return true;
+      for (Effect* e = all_effects; e; e = e->next_) {
+	if (isNameDigits(e->GetName(), dir)) {
+	  return true;
+	}
+      }
+      return false;
+    }
+    
+    void ScanIterator(LSFS::Iterator& iter) {
+      // fprintf(stderr, "SCANITER: %s\n", fname);
+      char* fend = fname;
+      int flen = strlen(fname);
+      fend += flen;
+      if (flen && fend[-1] != '/') {
+	*fend = '/';
+	fend++;
+      }
+      for (; iter; ++iter) {
+	// fprintf(stderr, "N: %s\n", iter.name());
+	if (iter.name()[0] == '.') continue;
+	strcpy(fend, iter.name());
+	if (iter.isdir()) {
+	  if (ShouldScan(iter.name())) {
+	    LSFS::Iterator i2(iter);
+	    ScanIterator(i2);
+	  }
+	} else {
+	  ScanAll(font_path_ptr, fname);
+	}
+      }
+    }
+
+  public:
+    void Scan(const char* dir) {
+      fname[0] = 0;
+      font_path_ptr = dir;
+      LSFS::Iterator i(dir);
+      ScanIterator(i);
+    }
+  };
+#endif
+
+  static void ScanOneDirectory(const char* dir) {
+      #if defined(DIAGNOSE_PRESETS) 
         STDOUT.print("Scanning sound font: ");
         STDOUT.print(dir);
       #endif
 
+
 #ifdef ENABLE_SERIALFLASH
-      // Scan serial flash.
-      SerialFlashChip::opendir();
-      uint32_t size;
-      char filename[128];
-      while (SerialFlashChip::readdir(filename, sizeof(filename), size)) {
-        const char* f = startswith(dir, filename);
-        if (!f) continue;
-        if (*f != '/') continue;
-        ScanAll(f + 1, dir);
-      }
+    // Scan serial flash.
+    SerialFlashChip::opendir();
+    uint32_t size;
+    char filename[128];
+    while (SerialFlashChip::readdir(filename, sizeof(filename), size)) {
+      const char* f = startswith(dir, filename);
+      if (!f) continue;
+      if (*f != '/') continue;
+      ScanAll(f + 1, dir);
+    }
 #endif
 
 #ifdef ENABLE_SD
-      if (LSFS::Exists(dir)) {
-        for (LSFS::Iterator iter(dir); iter; ++iter) {
-          if (iter.isdir()) {
-            char fname[128];
-            strcpy(fname, iter.name());
-            strcat(fname, "/");
-            char* fend = fname + strlen(fname);
-            for (LSFS::Iterator i2(iter); i2; ++i2) {
-              strcpy(fend, i2.name());
-              ScanAll(dir, fname);
-              // STDOUT.print(dir); STDOUT.print(", "); STDOUT.println(fname);
-            }
-          } else {
-            ScanAll(dir, iter.name());
-            // STDOUT.print(dir); STDOUT.print(", "); STDOUT.println(iter.name());
-
-          }
-        }
-  #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
-    STDOUT.println(" done");
+    if (LSFS::Exists(dir)) {
+      Scanner scanner;
+      scanner.Scan(dir);
+  #if defined(DIAGNOSE_PRESETS) 
+    	STDOUT.println(" done");
   #endif
-      } else {
-  #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+    } else {
+  #if defined(DIAGNOSE_PRESETS) 
 	  STDOUT.println(" NOT FOUND!");
   #endif
-#ifdef ENABLE_AUDIO
-#if VERSION_MAJOR <= 3	
-	if (strlen(dir) > 8) { // TODO: Check individual path segments
-	  talkie.Say(talkie_font_directory_15, 15);
-	  talkie.Say(talkie_too_long_15, 15);
-	} else
-#endif
-        if (strlen(dir)) {
-	  talkie.Say(talkie_font_directory_15, 15);
-	  talkie.Say(talkie_not_found_15, 15);
-	}
-#endif   // ENABLE_AUDIO
-      }
+      if (strlen(dir)) ProffieOSErrors::font_directory_not_found();
+    }
 #endif   // ENABLE_SD
+  }
+
+  static void ScanCurrentDirectory() {
+    LOCK_SD(true);
+    current_alternative = 0;
+    num_alternatives = 0;
+    for (Effect* e = all_effects; e; e = e->next_) {
+        if (!e->persistent_) e->reset();    // don't reset persistent effects
+    }
+
+    for (const char* dir = current_directory; dir; dir = next_current_directory(dir)) {
+      ScanOneDirectory(dir);
     }
 
     bool warned = false;
     for (Effect* e = all_effects; e; e = e->next_) {
-      #ifndef OSx
-            if (e->files_found() != (size_t)(e->num_files_)) {
-        if (!warned) {
-          warned = true;
-          STDOUT.println("");
-          STDOUT.println("WARNING: This font seems to be missing some files!!");
-          talkie.Say(talkie_error_in_15, 15);
-          talkie.Say(talkie_font_directory_15, 15);
-        }
-        e->Show();
-            }
-      #else // OSx: allow random numbering for persistent effects
-      if (!e->persistent_ && (e->files_found() != (size_t)(e->num_files_))) {
+      if (!e->persistent_ && e->expected_files() != (size_t)(e->num_files_)) {
           if (!warned) {
             warned = true;
             #ifdef DIAGNOSE_PRESETS
               STDOUT.println("");
               STDOUT.println("WARNING: This font seems to be missing some files!!");
             #endif
-            talkie.Say(talkie_error_in_15, 15);
-            talkie.Say(talkie_font_directory_15, 15);
+	          ProffieOSErrors::error_in_font_directory();
           }
 	        e->Show();
       }
-      #endif // OSx
-
     }
     LOCK_SD(false);
   }
 
 
-#ifdef OSx
    // Manual scan for persistent effects
    static void ScanDirectory(const char* dir) {
     
@@ -544,30 +671,19 @@ class Effect {
       }
 #endif   // ENABLE_SD
 
-
-    // bool warned = false;
-    // for (Effect* e = all_effects; e; e = e->next_) {
-    //   if (e->files_found() != (size_t)(e->num_files_)) {
-    //     if (!warned) {
-    //       warned = true;
-    //       STDOUT.println("");
-    //       STDOUT.println("WARNING: This font seems to be missing some files!!");
-    //       talkie.Say(talkie_error_in_15, 15);
-    //       talkie.Say(talkie_font_directory_15, 15);
-    //     }
-    //     // e->Show();
-    //   }
-    // }
     LOCK_SD(false);
   }
-#endif // OSx
+
 
   Effect* next_;
 private:
   Effect* following_ = nullptr;
 
   // Minimum file number.
-  int16_t min_file_;
+  int8_t min_file_;
+
+  // Sub files found, must start with 000.wav
+  uint8_t sub_files_;
 
   // Maximum file number.
   int16_t max_file_;
@@ -590,6 +706,10 @@ private:
   bool paired_ : 1;
 
 
+
+  // Found in alt directory?
+  bool found_in_alt_dir_ : 1;
+
   FilePattern file_pattern_ = FilePattern::UNKNOWN;
 
   // All files must start with this prefix.
@@ -606,10 +726,8 @@ private:
 
   // The files for this effect are in this directory.
   const char* directory_;
-
-  #ifdef OSx
-    bool persistent_;     // if true it doesn't change directory with font. Must be scanned distinctly
-  #endif
+  
+  bool persistent_;     // if true it doesn't change directory with font. Must be scanned distinctly
 };
 
 
@@ -646,11 +764,8 @@ EFFECT(endlock);  // Plecter endlock support, used for polyphonic name too
 // Polyphonic fonts
 EFFECT(blst);
 EFFECT(clsh);
-#ifndef OSx
-  EFFECT2(in, pstoff);
-#else
-  EFFECT(in);   // No link so we can control pstoff
-#endif
+  // EFFECT2(in, pstoff);
+EFFECT(in);   // No link so we can control pstoff
 EFFECT(out);
 EFFECT2(lock, lock);
 EFFECT(swng);
@@ -690,6 +805,8 @@ EFFECT(ccbegin);
 EFFECT(ccend);
 EFFECT(ccchange);
 
+EFFECT(altchng);
+
 // Blaster effects
 // hum, boot and font are reused from sabers and already defined.
 EFFECT(bgnauto); // Doesn't exist in fonts, but I expect there may be use for autofire transitions
@@ -705,37 +822,39 @@ EFFECT(lowbatt);	// battery low
 // have the WAV reader use this.
 class EffectFileReader : public FileReader {
 public:
+  EffectFileReader() : FileReader(), do_open_(0) {}
+
   bool Play(Effect* f) {
-    do_open_ = false;
+    do_open_.set(false);
     Effect::FileID id = f->RandomFile();
     if (!id) {
       return false;
     }
     id.GetName(filename_);
-    do_open_ = true;
+    do_open_.set(true);
     return true;
   }
 
   void Play(const char* filename) {
-    do_open_ = false;
+    do_open_.set(false);
     strncpy(filename_, filename, sizeof(filename_));
-    do_open_ = true;
+    do_open_.set(true);
   }
 
   // Returns true if we had been asked to open a file.
   // Check if open succeded or not by calling IsOpen()
   bool OpenFile() {
-    if (!do_open_) return false;
+    if (!do_open_.get()) return false;
     if (!OpenFast(filename_)) {
       default_output->print("File ");
       default_output->print(filename_);
       default_output->println(" not found.");
     }
-    do_open_ = false;
+    do_open_.set(false);
     return true;
   }
 private:
-  volatile bool do_open_ = false;
+  POAtomic<bool> do_open_;
   char filename_[128];
 };
 

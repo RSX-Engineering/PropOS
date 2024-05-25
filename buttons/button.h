@@ -16,9 +16,7 @@ public:
 
   Button(enum BUTTON button, int pin, const char* name) : ButtonBase(name, button), pin_(pin) {
     pinMode(pin, INPUT_PULLUP);
-#ifdef ENABLE_SNOOZE
-    snooze_digital.pinMode(pin, INPUT_PULLUP, RISING);
-#endif
+
   }
 
 protected:
@@ -43,9 +41,7 @@ class PullDownButton : public ButtonBase{
 public:
   PullDownButton(enum BUTTON button, int pin, const char* name) : ButtonBase(name, button), pin_(pin) {
     pinMode(pin, INPUT_PULLDOWN);
-#ifdef ENABLE_SNOOZE
-    snooze_digital.pinMode(pin, INPUT_PULLDOWN, FALLING);
-#endif
+
   }
 protected:
   uint8_t pin_;

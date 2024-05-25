@@ -75,7 +75,6 @@ public:
 	if (transitions_[i].done()) run_[i] = false;
       }
     }
-    last_detected_blade_effect = nullptr;
   }
   
 private:
