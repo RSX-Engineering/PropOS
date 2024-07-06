@@ -1,9 +1,8 @@
 #ifndef SOUND_HYBRID_FONT_H
 #define SOUND_HYBRID_FONT_H
 #include "../common/fuse.h"
-#ifdef OSx
-#include "../props/xMenu.h"   // need emojis
-#endif
+#include "../props/TTmenu.h"   // need emojis
+
 
 class FontConfigFile : public ConfigFile {
 public:
@@ -138,7 +137,7 @@ public:
   void Activate() {
     SetupStandardAudio();
     font_config.ReadInCurrentDir("config.ini");
-    #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+    #if defined(DIAGNOSE_PRESETS) 
       STDOUT.print("Activating ");
     #endif
     // TODO: Find more reliable way to figure out if it's a monophonic or polyphonic font!!!!
@@ -153,29 +152,29 @@ public:
         if (SFX_humm) {
 	  monophonic_hum_ = false;
           guess_monophonic_ = false;
-          #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+          #if defined(DIAGNOSE_PRESETS) 
             STDOUT.print("plecter polyphonic");
           #endif
         } else {
           guess_monophonic_ = true;
-          #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+          #if defined(DIAGNOSE_PRESETS) 
             STDOUT.print("monophonic");
           #endif
         }
       } else {
         guess_monophonic_ = false;
-        #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+        #if defined(DIAGNOSE_PRESETS)
           STDOUT.print("hybrid");
         #endif
       }
     } else {
       guess_monophonic_ = false;
-      #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+      #if defined(DIAGNOSE_PRESETS) 
         STDOUT.print("polyphonic");
       #endif
     }
 
-    #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+    #if defined(DIAGNOSE_PRESETS)
       STDOUT.println(" font.");
     #endif
     SaberBase::Link(this);
@@ -203,7 +202,7 @@ public:
     }
     return true;
   }
-#ifdef OSx
+
   State GetState()
   {
     return state_;
@@ -221,7 +220,7 @@ public:
     return false;
 
   }
-#endif
+
   void Deactivate() {
     lock_player_.Free();
     hum_player_.Free();
@@ -423,19 +422,17 @@ public:
     }
   }
 
-#ifdef OSx
+
   bool silentOn = false;  // single-shot on without poweron effect (for fast preset change)
-#endif
+
 
   void SB_On() override {
     // If preon exists, we've already queed up playing the poweron and hum.
     bool already_started = state_ == STATE_WAIT_FOR_ON && SFX_preon;
-    #ifdef OSx
-      if (silentOn) {
-        already_started = true;   // no power on
-        silentOn = false;         // just this time
-      }
-    #endif
+    if (silentOn) {
+      already_started = true;   // no power on
+      silentOn = false;         // just this time
+    }
 
     if (monophonic_hum_) {
       if (!already_started) {
@@ -468,18 +465,16 @@ public:
       hum_fade_in_ = 0.2;
       if (SFX_humm && tmp) {
 	hum_fade_in_ = tmp->length();
-	#ifndef OSx
-	  STDOUT << "HUM fade-in time: " << hum_fade_in_ << "\n";
-  #endif
+  // STDOUT << "HUM fade-in time: " << hum_fade_in_ << "\n";
+
       }
       else if (font_config.humStart && tmp) {
         int delay_ms = 1000 * tmp->length() - font_config.humStart;
         if (delay_ms > 0 && delay_ms < 30000) {
           hum_start_ += delay_ms;
         }
-	#ifndef OSx
-  STDOUT << "humstart: " << font_config.humStart << "\n";
-  #endif
+
+  // STDOUT << "humstart: " << font_config.humStart << "\n";
       }
     }
   }
@@ -487,14 +482,14 @@ public:
   void SB_Off(OffType off_type) override {
     switch (off_type) {
   
-  #ifdef OSx
+
     case SILENT_OFF:
       state_ = STATE_OFF;
       hum_player_->set_fade_time(0.01);
       hum_player_->FadeAndStop();
       hum_player_.Free();
       break;
-  #endif
+  
 
       case OFF_CANCEL_PREON:
 	if (state_ == STATE_WAIT_FOR_ON) {
@@ -553,22 +548,16 @@ public:
   void SB_Effect(EffectType effect, float location) override {
     switch (effect) {
       default: return;
-    #ifdef OSx
       case EFFECT_NONE:  Play(&SFX_hum, &SFX_humm);  return;  // just start the hum
-    #endif
-    case EFFECT_PREON: SB_Preon(); return;
-    case EFFECT_POSTOFF: SB_Postoff(); return;
+      case EFFECT_PREON: SB_Preon(); return;
+      case EFFECT_POSTOFF: SB_Postoff(); return;
       case EFFECT_STAB:
-	if (SFX_stab) { PlayCommon(&SFX_stab); return; }
+	      if (SFX_stab) { PlayCommon(&SFX_stab); return; }
 	// If no stab sounds are found, fall through to clash
       case EFFECT_CLASH: Play(&SFX_clash, &SFX_clsh); return;
       case EFFECT_FORCE: PlayCommon(&SFX_force); return;
       case EFFECT_BLAST: Play(&SFX_blaster, &SFX_blst); return;      
-    #ifndef OSx
-      case EFFECT_BOOT: PlayPolyphonic(&SFX_boot); return;
-    #else
       case EFFECT_BOOT: emojiSounds.Select(emojiSounds_id::boot-1); PlayPolyphonic(&emojiSounds); return;
-    #endif
       case EFFECT_NEWFONT: SB_NewFont(); return;
       case EFFECT_LOCKUP_BEGIN: SB_BeginLockup(); return;
       case EFFECT_LOCKUP_END: SB_EndLockup(); return;
@@ -593,35 +582,10 @@ public:
 
 
   void SB_NewFont() {
-    #ifdef OSx
       // if(monoFont) return;      // don't announce font label if there's only one active font
       // if (SaberBase::monoFont) return;
-    #endif // OSx
     if (!PlayPolyphonic(&SFX_font)) {
       beeper.Beep(0.05, 2000.0);
-    }
-  }
-  void SB_Change(SaberBase::ChangeType change) override {
-    switch (change) {
-      case SaberBase::ENTER_COLOR_CHANGE:
-        if (!PlayPolyphonic(&SFX_ccbegin) && !PlayPolyphonic(&SFX_color)) {
-          beeper.Beep(0.20, 1000.0);
-          beeper.Beep(0.20, 1414.2);
-          beeper.Beep(0.20, 2000.0);
-        }
-        break;
-      case SaberBase::EXIT_COLOR_CHANGE:
-        if (!PlayPolyphonic(&SFX_ccend)) {
-          beeper.Beep(0.20, 2000.0);
-          beeper.Beep(0.20, 1414.2);
-          beeper.Beep(0.20, 1000.0);
-        }
-        break;
-      case SaberBase::CHANGE_COLOR:
-        if (!PlayPolyphonic(&SFX_ccchange)) {
-          beeper.Beep(0.05, 2000.0);
-        }
-        break;
     }
   }
 
@@ -792,9 +756,7 @@ public:
 	  !GetWavPlayerPlaying(&SFX_poweroff) &&
 	  !GetWavPlayerPlaying(&SFX_pwroff)) {
 	check_postoff_ = false;
-  #ifdef OSx
-    PlayCommon(&SFX_pstoff);    // Need manual play, we broke the link with 'in' so we can turn it off for the preset menu
-  #endif
+  PlayCommon(&SFX_pstoff);    // Need manual play, we broke the link with 'in' so we can turn it off for the preset menu
 	SaberBase::DoEffect(EFFECT_POSTOFF, 0);
   STDOUT.println("Do postoff");
       }
@@ -818,9 +780,7 @@ public:
     if (SFX_lowbatt) {
       PlayCommon(&SFX_lowbatt);
     } else {
-#ifdef ENABLE_AUDIO
-      talkie.Say(talkie_low_battery_15, 15);
-#endif
+      ProffieOSErrors::low_battery();
     }
   }
 

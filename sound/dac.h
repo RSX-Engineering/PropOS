@@ -1,7 +1,7 @@
 #ifndef SOUND_DAC_H
 #define SOUND_DAC_H
 
-#include "filter.h"
+// #include "filter.h"
 
 #if defined(__IMXRT1062__)
 void set_audioClock(int nfact, int32_t nmult, uint32_t ndiv,  bool force = false); // sets PLL4
@@ -9,61 +9,7 @@ void set_audioClock(int nfact, int32_t nmult, uint32_t ndiv,  bool force = false
 
 #ifdef USE_I2S
 
-#ifdef TEENSYDUINO
-// MCLK needs to be 48e6 / 1088 * 256 = 11.29411765 MHz -> 44.117647 kHz sample rate
-//
-#if defined(KINETISK) || defined(KINETISL)
 
-#if F_CPU == 96000000 || F_CPU == 48000000 || F_CPU == 24000000
-  // PLL is at 96 MHz in these modes
-  #define MCLK_MULT 2
-  #define MCLK_DIV  17
-#elif F_CPU == 72000000
-  #define MCLK_MULT 8
-  #define MCLK_DIV  51
-#elif F_CPU == 120000000
-  #define MCLK_MULT 8
-  #define MCLK_DIV  85
-#elif F_CPU == 144000000
-  #define MCLK_MULT 4
-  #define MCLK_DIV  51
-#elif F_CPU == 168000000
-  #define MCLK_MULT 8
-  #define MCLK_DIV  119
-#elif F_CPU == 180000000
-  #define MCLK_MULT 16
-  #define MCLK_DIV  255
-  #define MCLK_SRC  0
-#elif F_CPU == 192000000
-  #define MCLK_MULT 1
-  #define MCLK_DIV  17
-#elif F_CPU == 216000000
-  #define MCLK_MULT 8
-  #define MCLK_DIV  153
-  #define MCLK_SRC  0
-#elif F_CPU == 240000000
-  #define MCLK_MULT 4
-  #define MCLK_DIV  85
-#elif F_CPU == 16000000
-  #define MCLK_MULT 12
-  #define MCLK_DIV  17
-#else
-  #error "This CPU Clock Speed is not supported.";
-#endif
-
-#ifndef MCLK_SRC
-#if F_CPU >= 20000000
-  #define MCLK_SRC  3  // the PLL
-#else
-  #define MCLK_SRC  0  // system clock
-#endif
-#endif
-
-#endif // KINETISK/L
-
-#define CHANNELS 2
-
-#else // TEENSYDUINO
 
 #define CHANNELS 1
 
@@ -83,7 +29,7 @@ void my_stm32l4_system_saiclk_configure_22579200()
   while (!(RCC->CR & RCC_CR_PLLSAI1RDY)){}
 }
 
-#endif
+
 
 #else   // USE_I2S
 #define CHANNELS 1
@@ -92,8 +38,7 @@ void my_stm32l4_system_saiclk_configure_22579200()
 #define PDB_CONFIG (PDB_SC_TRGSEL(15) | PDB_SC_PDBEN | PDB_SC_CONT | PDB_SC_PDBIE | PDB_SC_DMAEN)
 
 
-  #if defined(USE_DAC) && defined(ULTRA_PROFFIE)
-
+#if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
 #include "stm32l4_timer.h"
 #include "stm32l4_dac.h"
 #include "stm32l4_dma.h"
@@ -108,12 +53,12 @@ uint32_t timPeriphClock;
 #endif
 
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
+#if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
 bool SoundActive();         // defined later in sound.h
 void SetupStandardAudio();  // defined later in sound.h
-class LS_DAC : CommandParser, Looper, public xPowerSubscriber {
+class LS_DAC : CommandParser, Looper, public PowerSubscriber {
 public:
-  LS_DAC() : CommandParser(), Looper(), xPowerSubscriber(pwr4_Booster | pwr4_Amplif) {}
+  LS_DAC() : CommandParser(), Looper(), PowerSubscriber(pwr4_Booster | pwr4_Amplif) {}
   void PwrOn_Callback() override  { 
     begin();      // setup and start peripheral
     #ifdef DIAGNOSE_POWER
@@ -128,177 +73,18 @@ public:
   }     
   void Loop() override { if (SoundActive()) RequestPower(); }
 
-#else // nOSx
+#else 
 class LS_DAC : CommandParser, Looper {
 public:
   void Loop() override {}
-#endif // OSx
+#endif 
 
   virtual const char* name() { return "DAC"; }
   void Setup() override {
     if (!needs_setup_) return;
     needs_setup_ = false;
-
-#ifdef TEENSYDUINO
-    dma.begin(true); // Allocate the DMA channel first
-
-  #ifdef USE_I2S
-
-    #if defined(KINETISK) || defined(KINETISL)
-        SIM_SCGC6 |= SIM_SCGC6_I2S;
-        SIM_SCGC7 |= SIM_SCGC7_DMA;
-        SIM_SCGC6 |= SIM_SCGC6_DMAMUX;
-
-        // enable MCLK output
-        I2S0_MCR = I2S_MCR_MICS(MCLK_SRC) | I2S_MCR_MOE;
-        while (I2S0_MCR & I2S_MCR_DUF) ;
-        I2S0_MDR = I2S_MDR_FRACT((MCLK_MULT-1)) | I2S_MDR_DIVIDE((MCLK_DIV-1));
-
-        // configure transmitter
-        I2S0_TMR = 0;
-        I2S0_TCR1 = I2S_TCR1_TFW(1);  // watermark at half fifo size
-        I2S0_TCR2 = I2S_TCR2_SYNC(0) | I2S_TCR2_BCP | I2S_TCR2_MSEL(1)
-          | I2S_TCR2_BCD | I2S_TCR2_DIV(3);
-        I2S0_TCR3 = I2S_TCR3_TCE;
-        I2S0_TCR4 = I2S_TCR4_FRSZ(1) | I2S_TCR4_SYWD(15) | I2S_TCR4_MF
-          | I2S_TCR4_FSE | I2S_TCR4_FSP | I2S_TCR4_FSD;
-        I2S0_TCR5 = I2S_TCR5_WNW(15) | I2S_TCR5_W0W(15) | I2S_TCR5_FBT(15);
-
-        // configure pin mux for 3 clock signals
-        CORE_PIN23_CONFIG = PORT_PCR_MUX(6); // pin 23, PTC2, I2S0_TX_FS (LRCLK)
-        CORE_PIN9_CONFIG  = PORT_PCR_MUX(6); // pin  9, PTC3, I2S0_TX_BCLK
-        CORE_PIN22_CONFIG = PORT_PCR_MUX(6); // pin 22, PTC1, I2S0_TXD0
-
-    #elif defined(__IMXRT1062__)
-
-        CCM_CCGR5 |= CCM_CCGR5_SAI1(CCM_CCGR_ON);
-        int fs = AUDIO_RATE;
-        // PLL between 27*24 = 648MHz und 54*24=1296MHz
-        int n1 = 4; //SAI prescaler 4 => (n1*n2) = multiple of 4
-        int n2 = 1 + (24000000 * 27) / (fs * 256 * n1);
-
-        double C = ((double)fs * 256 * n1 * n2) / 24000000;
-        int c0 = C;
-        int c2 = 10000;
-        int c1 = C * c2 - (c0 * c2);
-        set_audioClock(c0, c1, c2);
-
-        // clear SAI1_CLK register locations
-        CCM_CSCMR1 = (CCM_CSCMR1 & ~(CCM_CSCMR1_SAI1_CLK_SEL_MASK))
-          | CCM_CSCMR1_SAI1_CLK_SEL(2); // &0x03 // (0,1,2): PLL3PFD0, PLL5, PLL4
-        CCM_CS1CDR = (CCM_CS1CDR & ~(CCM_CS1CDR_SAI1_CLK_PRED_MASK | CCM_CS1CDR_SAI1_CLK_PODF_MASK))
-          | CCM_CS1CDR_SAI1_CLK_PRED(n1-1) // &0x07
-          | CCM_CS1CDR_SAI1_CLK_PODF(n2-1); // &0x3f
-
-        // Select MCLK
-        IOMUXC_GPR_GPR1 = (IOMUXC_GPR_GPR1
-                          & ~(IOMUXC_GPR_GPR1_SAI1_MCLK1_SEL_MASK))
-          | (IOMUXC_GPR_GPR1_SAI1_MCLK_DIR | IOMUXC_GPR_GPR1_SAI1_MCLK1_SEL(0));
-
-        CORE_PIN23_CONFIG = 3;  //1:MCLK
-        CORE_PIN21_CONFIG = 3;  //1:RX_BCLK
-        CORE_PIN20_CONFIG = 3;  //1:RX_SYNC
-
-        int rsync = 0;
-        int tsync = 1;
-
-        I2S1_TMR = 0;
-        //I2S1_TCSR = (1<<25); //Reset
-        I2S1_TCR1 = I2S_TCR1_RFW(1);
-        I2S1_TCR2 = I2S_TCR2_SYNC(tsync) | I2S_TCR2_BCP // sync=0; tx is async;
-          | (I2S_TCR2_BCD | I2S_TCR2_DIV((1)) | I2S_TCR2_MSEL(1));
-        I2S1_TCR3 = I2S_TCR3_TCE;
-        I2S1_TCR4 = I2S_TCR4_FRSZ((2-1)) | I2S_TCR4_SYWD((32-1)) | I2S_TCR4_MF
-          | I2S_TCR4_FSD | I2S_TCR4_FSE | I2S_TCR4_FSP;
-        I2S1_TCR5 = I2S_TCR5_WNW((32-1)) | I2S_TCR5_W0W((32-1)) | I2S_TCR5_FBT((32-1));
-
-        I2S1_RMR = 0;
-        //I2S1_RCSR = (1<<25); //Reset
-        I2S1_RCR1 = I2S_RCR1_RFW(1);
-        I2S1_RCR2 = I2S_RCR2_SYNC(rsync) | I2S_RCR2_BCP  // sync=0; rx is async;
-          | (I2S_RCR2_BCD | I2S_RCR2_DIV((1)) | I2S_RCR2_MSEL(1));
-        I2S1_RCR3 = I2S_RCR3_RCE;
-        I2S1_RCR4 = I2S_RCR4_FRSZ((2-1)) | I2S_RCR4_SYWD((32-1)) | I2S_RCR4_MF
-          | I2S_RCR4_FSE | I2S_RCR4_FSP | I2S_RCR4_FSD;
-        I2S1_RCR5 = I2S_RCR5_WNW((32-1)) | I2S_RCR5_W0W((32-1)) | I2S_RCR5_FBT((32-1));
-
-        CORE_PIN7_CONFIG  = 3;  //1:TX_DATA0
-    #endif
-
-    #if defined(KINETISK)
-        dma.TCD->SADDR = dac_dma_buffer;
-        dma.TCD->SOFF = 2;
-        dma.TCD->ATTR = DMA_TCD_ATTR_SSIZE(1) | DMA_TCD_ATTR_DSIZE(1);
-        dma.TCD->NBYTES_MLNO = 2;
-        dma.TCD->SLAST = -sizeof(dac_dma_buffer);
-        dma.TCD->DADDR = &I2S0_TDR0;
-        dma.TCD->DOFF = 0;
-        dma.TCD->CITER_ELINKNO = sizeof(dac_dma_buffer) / 2;
-        dma.TCD->DLASTSGA = 0;
-        dma.TCD->BITER_ELINKNO = sizeof(dac_dma_buffer) / 2;
-        dma.TCD->CSR = DMA_TCD_CSR_INTHALF | DMA_TCD_CSR_INTMAJOR;
-        dma.triggerAtHardwareEvent(DMAMUX_SOURCE_I2S0_TX);
-        dma.enable();
-
-        I2S0_TCSR = I2S_TCSR_SR;
-        I2S0_TCSR = I2S_TCSR_TE | I2S_TCSR_BCE | I2S_TCSR_FRDE;
-    #elif defined(__IMXRT1062__)
-        dma.TCD->SADDR = dac_dma_buffer;
-        dma.TCD->SOFF = 2;
-        dma.TCD->ATTR = DMA_TCD_ATTR_SSIZE(1) | DMA_TCD_ATTR_DSIZE(1);
-        dma.TCD->NBYTES_MLNO = 2;
-        dma.TCD->SLAST = -sizeof(dac_dma_buffer);
-        dma.TCD->DOFF = 0;
-        dma.TCD->CITER_ELINKNO = sizeof(dac_dma_buffer) / 2;
-        dma.TCD->DLASTSGA = 0;
-        dma.TCD->BITER_ELINKNO = sizeof(dac_dma_buffer) / 2;
-        dma.TCD->CSR = DMA_TCD_CSR_INTHALF | DMA_TCD_CSR_INTMAJOR;
-        dma.TCD->DADDR = (void *)((uint32_t)&I2S1_TDR0 + 2);
-        dma.triggerAtHardwareEvent(DMAMUX_SOURCE_SAI1_TX);
-        dma.enable();
-
-        I2S1_RCSR |= I2S_RCSR_RE | I2S_RCSR_BCE;
-        I2S1_TCSR = I2S_TCSR_TE | I2S_TCSR_BCE | I2S_TCSR_FRDE;
-    #endif
-
-  #else   // USE_I2S
-
-    SIM_SCGC2 |= SIM_SCGC2_DAC0;
-    DAC0_C0 = DAC_C0_DACEN;
-#ifdef LOUD
-    DAC0_C0 |= DAC_C0_DACRFS;  // 3.3V, much louder
-#endif
-    // This would cause a click, but the amp is not on yet...
-    *(int16_t *)&(DAC0_DAT0L) = 2048;
-
-    // set the programmable delay block to trigger DMA requests
-    SIM_SCGC6 |= SIM_SCGC6_PDB;
-    PDB0_IDLY = 1;
-    PDB0_MOD = F_BUS / AUDIO_RATE;
-    PDB0_SC = PDB_CONFIG | PDB_SC_LDOK;
-    PDB0_SC = PDB_CONFIG | PDB_SC_SWTRIG;
-    PDB0_CH0C1 = 0x0101;
-
-    dma.TCD->SADDR = dac_dma_buffer;
-    dma.TCD->SOFF = 2;
-    dma.TCD->ATTR = DMA_TCD_ATTR_SSIZE(1) | DMA_TCD_ATTR_DSIZE(1);
-    dma.TCD->NBYTES_MLNO = 2;
-    dma.TCD->SLAST = -sizeof(dac_dma_buffer);
-    dma.TCD->DADDR = &DAC0_DAT0L;
-    dma.TCD->DOFF = 0;
-    dma.TCD->CITER_ELINKNO = NELEM(dac_dma_buffer);
-    dma.TCD->DLASTSGA = 0;
-    dma.TCD->BITER_ELINKNO = NELEM(dac_dma_buffer);
-    dma.TCD->CSR = DMA_TCD_CSR_INTHALF | DMA_TCD_CSR_INTMAJOR;
-    dma.triggerAtHardwareEvent(DMAMUX_SOURCE_PDB);
-    dma.enable();
-#endif
-    dma.attachInterrupt(isr);
-
-#else  // teensyduino
-    // check return value?
 	
-  #if defined(USE_DAC) && defined(ULTRA_PROFFIE)
+  #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
     bool result;
     unsigned int priority = STM32L4_SAI_IRQ_PRIORITY;
     // uint32_t timPeriphClock;
@@ -333,7 +119,7 @@ public:
 
     stm32l4_dac1.DACx->CR |= DAC_CR_DMAEN1 | DAC_CR_DMAUDRIE1; // enable underrrun IT and DMA ENABLE
 
-  #else // end USE_DAC
+  #else // end ULTRAPROFFIE_DAC
     #if PROFFIEBOARD_VERSION == 3
         stm32l4_dma_create(&dma, DMA_CHANNEL_DMA2_CH1_SAI1_A, STM32L4_SAI_IRQ_PRIORITY);
     #else
@@ -343,11 +129,11 @@ public:
         stm32l4_dma_create(&dma2, DMA_CHANNEL_DMA2_CH2_SAI1_B, STM32L4_SAI_IRQ_PRIORITY);
         // stm32l4_dma_create(&dma2, DMA_CHANNEL_DMA2_CH7_SAI1_B, STM32L4_SAI_IRQ_PRIORITY);
     #endif
-  #endif // end else  USE_DAC
+  #endif // end else  ULTRAPROFFIE_DAC
 
-#endif // end else TEENSYDUINO
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
+
+#if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
     SetupStandardAudio();   // was in amplifier.Setup()
 #endif
 
@@ -366,8 +152,7 @@ public:
     filter_.clear();
 #endif
 
-  #if defined(USE_DAC) && defined(ULTRA_PROFFIE)
-
+  #if defined(ULTRAPROFFIE_DAC) && defined(ARDUINO_ARCH_STM32L4)  // STM UltraProffies
   uint32_t dmaOption = 0;
   dmaOption = DMA_OPTION_MEMORY_TO_PERIPHERAL | DMA_OPTION_PERIPHERAL_DATA_SIZE_16 | DMA_OPTION_PRIORITY_HIGH | DMA_OPTION_MEMORY_DATA_SIZE_16 \
                   | DMA_OPTION_CIRCULAR | DMA_OPTION_MEMORY_DATA_INCREMENT;
@@ -379,8 +164,7 @@ public:
   stm32l4_timer_start(&stm32l4_dac1Timer, 0); // start the timer 
   stm32l4_dac1.DACx->CR |= DAC_CR_EN1; // enable underrrun IT and DMA ENABLE
 
-#else // end USE_DAC
-  #ifndef TEENSYDUINO
+#else // end ULTRAPROFFIE_DAC
       stm32l4_system_periph_enable(SYSTEM_PERIPH_SAI1);
       stm32l4_dma_enable(&dma, &isr, 0);
       SAI_Block_TypeDef *SAIx = SAI1_Block_A;
@@ -484,8 +268,8 @@ public:
       }
   #endif // I2S || SPDIF
       interrupts();
-  #endif
-#endif // end else USE_DAC
+  
+#endif // end else ULTRAPROFFIE_DAC
 
 
   }
@@ -493,13 +277,12 @@ public:
   void end() {
     if (!on_) return;
     on_ = false;
-#if defined(USE_DAC) && defined(ULTRA_PROFFIE)
+#if defined(ULTRAPROFFIE_DAC) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
     stm32l4_dac1.DACx->CR &= ~DAC_CR_EN1;     // Disable DAC output
     //stm32l4_gpio_pin_write(GPIO_PIN_PB4, 0);  // Disable amp TODO , remove from here maybe 
     stm32l4_timer_stop(&stm32l4_dac1Timer);   // start the timer 
     stm32l4_dma_stop(&dma);       // stop DMA
 #else 
-  #ifndef TEENSYDUINO
       SAI_Block_TypeDef *SAIx = SAI1_Block_A;
 
       SAIx->CR1 &=~ SAI_xCR1_SAIEN;
@@ -536,14 +319,13 @@ public:
       stm32l4_gpio_pin_configure(GPIO_PIN_PB5_SAI1_SD_B,  (GPIO_PUPD_NONE | GPIO_MODE_ANALOG));
   #endif
 
-  #endif
+  
 #endif 
   }
 
   bool Parse(const char* cmd, const char* arg) override {
 #ifndef DISABLE_DIAGNOSTIC_COMMANDS
     if (!strcmp(cmd, "dacbuf")) {
-#ifndef TEENSYDUINO
       SAI_Block_TypeDef *SAIx = SAI1_Block_A;
       STDOUT.print("STATUS: ");
       STDOUT.print(SAIx->SR, HEX);
@@ -551,15 +333,10 @@ public:
       STDOUT.print(SAIx->CR1, HEX);
       STDOUT.print(" CR2: ");
       STDOUT.println(SAIx->CR2, HEX);
-#endif
       STDOUT.print("Current position: ");
       STDOUT.println(((uint16_t*)current_position()) - dac_dma_buffer);
       for (size_t i = 0; i < NELEM(dac_dma_buffer); i++) {
-#if defined(TEENSYDUINO) && !defined(USE_I2S)
-        STDOUT.print(dac_dma_buffer[i] - 2048);
-#else
         STDOUT.print(dac_dma_buffer[i]);
-#endif
         if ((i & 0xf) == 0xf)
           STDOUT.println("");
         else
@@ -580,7 +357,7 @@ public:
   }
 
   void Help() override {
-    #if defined(COMMANDS_HELP) || !defined(OSx)
+    #if defined(COMMANDS_HELP) 
     STDOUT.println(" dacbuf - print the current contents of the dac buffer");
     #endif
   }
@@ -592,19 +369,12 @@ public:
 
 private:
   static uint32_t current_position() {
-#ifdef TEENSYDUINO
-    return (uint32_t)(dma.TCD->SADDR);
-#else
-    return (uint32_t)(dac_dma_buffer + stm32l4_dma_count(&dma));
-#endif
+  return (uint32_t)(dac_dma_buffer + stm32l4_dma_count(&dma));
   }
   // Interrupt handler.
   // Fills the dma buffer with new sample data.
-#ifdef TEENSYDUINO
-  static void isr(void)
-#else
   static void isr(void* arg, unsigned long int event)
-#endif
+
   {
     ScopedCycleCounter cc(audio_dma_interrupt_cycles);
     int16_t *dest;
@@ -616,9 +386,6 @@ private:
     uint16_t *secondary;
 #endif
 
-#ifdef TEENSYDUINO
-    dma.clearInterrupt();
-#endif
     if (saddr < (uint32_t)dac_dma_buffer + sizeof(dac_dma_buffer) / 2) {
       // DMA is transmitting the first half of the buffer
       // so we must fill the second half
@@ -691,7 +458,7 @@ private:
         // Duplicate sample to left and right channel.
         *(dest++) = sample;
   #endif
-#elif defined(USE_DAC)
+#elif defined(ULTRAPROFFIE_DAC)
 
     *(dest++) = (((uint16_t)sample) + 32768);   // was  32767
 
@@ -731,15 +498,13 @@ private:
 #endif  
 };
 
-#ifdef TEENSYDUINO
-DMAChannel LS_DAC::dma(false);
-#else
+
 DMAChannel LS_DAC::dma;
 #if defined(ENABLE_I2S_OUT) || defined(ENABLE_SPDIF_OUT)
 DMAChannel LS_DAC::dma2;
 #endif
 
-#endif
+
 ProffieOSAudioStream * volatile LS_DAC::stream_ = nullptr;
 DMAMEM __attribute__((aligned(32))) uint16_t LS_DAC::dac_dma_buffer[AUDIO_BUFFER_SIZE*2*CHANNELS];
 #ifdef ENABLE_SPDIF_OUT

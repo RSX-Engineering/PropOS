@@ -1,37 +1,38 @@
 #ifdef ENABLE_AUDIO
 
 // DMA-driven audio output.
+#ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+#define AUDIO_BUFFER_SIZE 128	
+#else
 #define AUDIO_BUFFER_SIZE 44
-#define AUDIO_RATE 44100
-#ifndef OSx
-  #define NUM_WAV_PLAYERS 7
-#else 
-  #define NUM_WAV_PLAYERS 8
 #endif
+#define AUDIO_RATE 44100
+#define NUM_WAV_PLAYERS 8
+
 
 
 #include "talkie.h"
 
 #include "click_avoider_lin.h"
-#include "waveform_sampler.h"
 #include "audiostream.h"
-#include "../common/xPowerManager.h" // need this before dynamic_mixer, but moving upwards will cause the linker to fail, so we'll just keep it messy like everything else
+#ifdef ULTRAPROFFIE
+  #include "../common/PowerManager.h" // need this before dynamic_mixer, but moving upwards will cause the linker to fail, so we'll just keep it messy like everything else
+#endif
 
 #include "dynamic_mixer.h"
+#ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+#include "dac_os.h"
+#else
 #include "dac.h"
+#endif
 #include "beeper.h"
 
 
 
 
-
-#include "lightsaber_synth.h"
-
-
 Beeper beeper;
 Talkie talkie;
 
-// LightSaberSynth saber_synth;
 #include "buffered_audio_stream.h"
 
 size_t WhatUnit(class BufferedWavPlayer* player);
@@ -91,11 +92,16 @@ void SetupStandardAudioLow() {
 }
 
 void SetupStandardAudio() {
+#ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+  SetupStandardAudioLow();
+  dac_OS.SetStream(&dynamic_mixer);
+#else
   dac.SetStream(NULL);
   SetupStandardAudioLow();
   dac.SetStream(&dynamic_mixer);
+#endif
 }
-#ifdef OSx
+
 uint8_t GetNrOFPlayingPlayers(bool excludeTrack = false)
 {   
   uint8_t nrPlaying = 0;
@@ -110,8 +116,14 @@ uint8_t GetNrOFPlayingPlayers(bool excludeTrack = false)
 
   return nrPlaying;
 }
-#ifdef ULTRA_PROFFIE
-  inline void EnableAmplifier() { dac.RequestPower(); }
+#ifdef ULTRAPROFFIE
+  inline void EnableAmplifier() { 
+    #ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+    dac_OS.RequestPower();
+    #else
+    dac.RequestPower();
+    #endif 
+    }
 
   bool SoundActive() {
     if (!dynamic_mixer.get_volume()) return false;    // muted
@@ -129,9 +141,9 @@ uint8_t GetNrOFPlayingPlayers(bool excludeTrack = false)
   void SilentEnableBooster(bool on) {}
   void SilentEnableAmplifier(bool on) {}
 
-#endif // ULTRA_PROFFIE
 
-#endif // OSx
+#endif 
+
 
 #include "../common/config_file.h"
 #include "hybrid_font.h"

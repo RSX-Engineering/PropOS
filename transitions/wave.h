@@ -1,12 +1,15 @@
 #ifndef TRANSITIONS_WAVE_H
 #define TRANSITIONS_WAVE_H
 
+// Usage: TrWaveX<COLOR, FADEOUT_MS, WAVE_SIZE, WAVE_MS, WAVE_CENTER>
+// COLOR: COLOR
+// FADEOUT_MS, WAVE_SIZE, WAVE_MS, WAVE_CENTER: FUNCTION
 // TrWave is implements a wave traveling out from a specified point.
 // It's based on the Blast effect and is meant to look like a ripple starting
 // at a point on the blade. Unlike other transitions, this effect starts and ends
 // at the same color, and the wave is drawn using COLOR instead of the start/end
-// colors like most transitions to. It's intended to be used with TransitionLoopL
-// or TransitionEffectL, which takes transitions that start and begin with the same
+// colors like most transitions do. It's intended to be used with TransitionLoopL
+// or TransitionEffectL, which take transitions that start and begin with the same
 // color.
 
 template<class COLOR,
@@ -17,6 +20,7 @@ template<class COLOR,
 class TrWaveX : public TransitionBaseX<FADEOUT_MS> {
 public:
   void run(BladeBase *blade) {
+    static_assert(!is_same_type<WAVE_MS, Int<0>>::value, "WAVE_MS cannot be zero");
     wave_size_.run(blade);
     wave_center_.run(blade);
     wave_ms_.run(blade);
@@ -48,7 +52,7 @@ public:
     int dist = std::abs(center_ - led * 32768 / num_leds_);
     int N = std::abs(dist - offset_) * size_ >> 15;
     int mix;
-    if (N <= 32) {
+    if (N < 32) {
       mix = blast_hump[N] * mix_ >> 8;
     } else {
       mix = 0;
@@ -57,11 +61,14 @@ public:
   }
 };
 
+// Usage: TrSparkX< COLOR, SPARK_SIZE, SPARK_MS, SPARK_CENTER>
+// COLOR: COLOR
+// SPARK_SIZE, SPARK_MS, SPARK_CENTER: FUNCTIONS
 // TrSparkX generates a wave without Fade over the length of the blade from 
 // SPARK_CENTER. Unlike other transitions, this effect starts and ends
 // at the same color, and the wave is drawn using COLOR instead of the start/end
-// colors like most transitions to. It's intended to be used with TransitionLoopL
-// or TransitionEffectL, which takes transitions that start and begin with the same
+// colors like most transitions do. It's intended to be used with TransitionLoopL
+// or TransitionEffectL, which take transitions that start and begin with the same
 // color.
 
 template<class COLOR,
@@ -99,7 +106,7 @@ public:
     int dist = std::abs(center_ - led * 32768 / num_leds_);
     int N = std::abs(dist - offset_) * size_ >> 15;
     int mix;
-    if (N <= 32) {
+    if (N < 32) {
       mix = blast_hump[N] << 7;
     } else {
       mix = 0;

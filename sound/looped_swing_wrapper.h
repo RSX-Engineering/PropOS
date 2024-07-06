@@ -80,26 +80,7 @@ public:
     delegate_->SetHumVolume(vol * hum);
     if (low_) low_->set_volume(vol * low);
     if (high_) high_->set_volume(vol * high);
-    if (monitor.ShouldPrint(Monitoring::MonitorSwings)) {
-      STDOUT.print("S:");
-      STDOUT.print(speed);
-      STDOUT.print(" T:");
-      STDOUT.print(t);
-      STDOUT.print(" s:");
-      STDOUT.print(s);
-      STDOUT.print(" c:");
-      STDOUT.print(c);
-      STDOUT.print(" blend:");
-      STDOUT.print(blend);
-      STDOUT.print(" vol:");
-      STDOUT.print(vol);
-      STDOUT.print(" hi:");
-      STDOUT.print(high);
-      STDOUT.print(" lo:");
-      STDOUT.print(low);
-      STDOUT.print(" hum:");
-      STDOUT.println(hum);
-    }
+
   }
 };
 

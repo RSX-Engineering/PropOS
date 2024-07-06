@@ -1,7 +1,7 @@
 #ifndef STYLES_INOUT_SPARKTIP_H
 #define STYLES_INOUT_SPARKTIP_H
-// Usage: InOutHelper<BASE, OUT_MILLIS, IN_MILLIS>
-// or: InOutHelper<BASE, OUT_MILLIS, IN_MILLIS, SPARK_COLOR>
+
+// Usage: InOutSparkTip<BASE, OUT_MILLIS, IN_MILLIS, SPARK_COLOR>
 // BASE, SPARK_COLOR: COLOR
 // OUT_MILLIS, IN_MILLIS: a number
 // return value: COLOR
@@ -31,7 +31,7 @@ private:
   OFF_COLOR off_color_;
 public:
   auto getColor(int led) -> decltype(MixColors(off_color_.getColor(0), MixColors(spark_color_.getColor(0), base_.getColor(0), 1, 8), 1, 8)) {
-    SCOPED_PROFILER();
+    
     decltype(getColor(0)) ret = base_.getColor(led);
     if (on_) {
       auto spark = spark_color_.getColor(led);

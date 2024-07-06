@@ -27,7 +27,7 @@ public:
   float AccentSwingSpeedThreshold;
   float AccentSlashAccelerationThreshold;
 
-#ifdef OSx
+
   // Apply swing sensitivity to smooth swing parameters. 
   // Call ApplySensitivity(0) once to store unscaled values!
   void ApplySensitivity(SwSensitivity* sensitivity) {
@@ -52,7 +52,7 @@ public:
       }
 
   }
-#endif // OSx 
+
 
 };
 

@@ -5,69 +5,16 @@
 #define PROP_INHERIT_PREFIX
 #endif
 
-#ifdef OSx
-  #include "xMenu.h"
-  #ifdef OSX_ENABLE_MTP
-    #include "../common/serial.h"
-  #endif 
-#endif // OSx
+#include "TTmenu.h"
+#ifdef OSX_ENABLE_MTP
+  #include "../common/serial.h"
+#endif 
 
 
-#if !defined(DYNAMIC_CLASH_THRESHOLD) && defined(SAVE_CLASH_THRESHOLD)
-#undef SAVE_CLASH_THRESHOLD
-#endif
 
-#if !defined(DYNAMIC_BLADE_DIMMING) && defined(SAVE_BLADE_DIMMING)
-#undef SAVE_BLADE_DIMMING
-#endif
 
-#if !defined(ENABLE_AUDIO) && defined(SAVE_VOLUME)
-#undef SAVE_VOLUME
-#endif
 
-class SaveGlobalStateFile : public ConfigFile {
-public:
-  void iterateVariables(VariableOP *op) override {
-#ifdef SAVE_CLASH_THRESHOLD
-    CONFIG_VARIABLE2(clash_threshold, CLASH_THRESHOLD_G);
-#endif
-#ifdef SAVE_VOLUME
-    CONFIG_VARIABLE2(volume, -1);
-#endif
-#ifdef SAVE_BLADE_DIMMING
-    CONFIG_VARIABLE2(dimming, 16384);
-#endif
-  }
-#ifdef SAVE_CLASH_THRESHOLD
-  float clash_threshold;
-#endif
-#ifdef SAVE_VOLUME
-  int volume;
-#endif
-#ifdef SAVE_BLADE_DIMMING
-  int dimming;
-#endif
-};
 
-class SavePresetStateFile : public ConfigFile {
-public:
-  void iterateVariables(VariableOP *op) override {
-    CONFIG_VARIABLE2(preset, 0);
-#ifdef DYNAMIC_BLADE_LENGTH
-#define BLADE_LEN_CONFIG_VARIABLE(N) CONFIG_VARIABLE2(blade##N##len, -1);
-    ONCEPERBLADE(BLADE_LEN_CONFIG_VARIABLE);
-#endif
-  }
-  int preset;
-#ifdef DYNAMIC_BLADE_LENGTH
-#define BLADE_LEN_VARIABLE(N) int blade##N##len;
-    #ifndef OSx
-    ONCEPERBLADE(BLADE_LEN_VARIABLE);
-    #else // OSx
-      ONCEPERSUPPORTEDBLADE(BLADE_LEN_VARIABLE);
-    #endif // OSx
-#endif
-};
 
 struct SoundToPlay {
   const char* filename_;
@@ -90,40 +37,9 @@ struct SoundToPlay {
 
 
 
-    template<int QueueLength>
-    class SoundQueue {
-    public:
-      bool Play(SoundToPlay p) {
-        if (sounds_ < QueueLength) {
-          queue_[sounds_++] = p;
-          return true;
-        }
-        return false;
-      }
-      bool Play(const char* p) {
-        return Play(SoundToPlay(p));
-      }
-      // Called from Loop()
-      void PollSoundQueue(RefPtr<BufferedWavPlayer>& player) {
-        if (sounds_ &&  (!player || !player->isPlaying())) {
-          if (!player) {
-            player = GetFreeWavPlayer();
-            if (!player) return;
-            player->set_volume_now(1.0f);
-          }
-          queue_[0].Play(player.get());
-          sounds_--;
-          for (int i = 0; i < sounds_; i++) queue_[i] = queue_[i+1];
-        }
-      }
-    private:
-      int sounds_;
-      SoundToPlay queue_[QueueLength];
-    };
-
 // Base class for props.
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
-class PropBase : CommandParser, Looper, public xPowerSubscriber, protected SaberBase {
+#ifdef ULTRAPROFFIE
+class PropBase : CommandParser, Looper, public PowerSubscriber, protected SaberBase {
 public:
 void PwrOn_Callback() override { 
     #ifdef DIAGNOSE_POWER
@@ -135,22 +51,19 @@ void PwrOn_Callback() override {
       STDOUT.println(" cpu- "); 
     #endif
   }
-#else  // nULTRA_PROFFIE
+#else  
 class PropBase : CommandParser, Looper, protected SaberBase {
-#endif // ULTRA_PROFFIE
+#endif 
 
 public: 
-#ifndef OSx
-  PropBase() : CommandParser() {}
-#else // OSx
-  xMenu<uint16_t>* menu;    // if a menu is assigned to prop, events will be redirected to menu.Event()
-  #ifdef ULTRA_PROFFIE
-    PropBase() : CommandParser(), Looper(), xPowerSubscriber(pwr4_CPU) { menu=0; accResultant = 0;}
-  #else // nULTRA_PROFFIE
-    xMenu<uint16_t>* menu;    // if a menu is assigned to prop, events will be redirected to menu.Event()
+  TTMenu<uint16_t>* menu;    // if a menu is assigned to prop, events will be redirected to menu.Event()
+  #ifdef ULTRAPROFFIE
+    PropBase() : CommandParser(), Looper(), PowerSubscriber(pwr4_CPU) { menu=0; accResultant = 0;}
+  #else 
+    //TTMenu<uint16_t>* menu;    // if a menu is assigned to prop, events will be redirected to menu.Event()
     PropBase() : CommandParser() { menu=0; accResultant = 0;}
-  #endif // ULTRA_PROFFIE
-#endif // OSx
+  #endif
+
 
   BladeStyle* current_style() {
 #if NUM_BLADES == 0
@@ -162,28 +75,24 @@ public:
   }
 
   const char* current_preset_name() {
-    #if !defined(OSx) || defined(OLDPROFILE)       
-        return current_preset_.name.get();
-    #else // OSx
           return current_preset_->name;
-    #endif // OSx
       }
 
-#if defined(ULTRA_PROFFIE) && defined(OSx)
+#ifdef ULTRAPROFFIE
   bool HoldPower() override {  // Return true to pause power subscriber timeout
     if (IsOn()) return true;
     if (current_style() && current_style()->NoOnOff()) return true;
     return false;
   }
   inline bool NeedsPower() { return HoldPower(); }
-#else // nULTRA_PROFFIE
+#else 
   bool NeedsPower() {
     if (SaberBase::IsOn()) return true;
     if (current_style() && current_style()->NoOnOff())
       return true;
     return false;
   }
-#endif // ULTRA_PROFFIE
+#endif
 
 
   int32_t muted_volume_ = 0;
@@ -193,7 +102,7 @@ public:
       if (dynamic_mixer.get_volume()) {
         muted_volume_ = dynamic_mixer.get_volume();
         dynamic_mixer.set_volume(0);
-        #ifdef ULTRA_PROFFIE
+        #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
           SilentEnableAmplifier(false);
           SilentEnableBooster(false);
         #endif
@@ -203,7 +112,7 @@ public:
       if (muted_volume_) {
         dynamic_mixer.set_volume(muted_volume_);
         muted_volume_ = 0;
-        #ifdef ULTRA_PROFFIE
+        #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
           SilentEnableAmplifier(true);
           SilentEnableBooster(true);
         #endif
@@ -220,11 +129,7 @@ public:
   uint32_t clash_timeout_ = 100;
 
   bool clash_pending_ = false;
-  #ifndef OSx
-    bool pending_clash_is_stab_ = false;
-  #else
-    int8_t pending_clash_is_stab_ = 0;
-  #endif
+  int8_t pending_clash_is_stab_ = 0;
   float pending_clash_strength_ = 0.0;
 
   bool on_pending_ = false;
@@ -234,11 +139,15 @@ public:
   }
 
   virtual void On() {
+#ifdef ENABLE_AUDIO
     if (!CommonIgnition()) return;
     SaberBase::DoPreOn();
     on_pending_ = true;
     // Hybrid font will call SaberBase::TurnOn() for us.
-
+#else
+    // No sound means no preon.
+    FastOn();
+#endif    
   }
 
 
@@ -265,11 +174,6 @@ public:
       SaberBase::DoEndLockup();
       SaberBase::SetLockup(SaberBase::LOCKUP_NONE);
     }
-#ifndef DISABLE_COLOR_CHANGE
-    if (SaberBase::GetColorChangeMode() != SaberBase::COLOR_CHANGE_MODE_NONE) {
-      ToggleColorChangeMode();
-    }
-#endif
     SaberBase::TurnOff(off_type);
     if (unmute_on_deactivation_) {
       unmute_on_deactivation_ = false;
@@ -283,15 +187,7 @@ public:
     }
   }
 
-#ifdef DYNAMIC_CLASH_THRESHOLD
-  float clash_threshold_;
-  float GetCurrentClashThreshold() { return clash_threshold_; }
-  void SetClashThreshold(float clash_threshold) { clash_threshold_ = clash_threshold; }
-  #undef CLASH_THRESHOLD_G
-  #define CLASH_THRESHOLD_G clash_threshold_
-#else
   float GetCurrentClashThreshold() { return CLASH_THRESHOLD_G; }
-#endif
 
   void IgnoreClash(size_t ms) {
     if (clash_pending_) return;
@@ -304,11 +200,7 @@ public:
     clash_timeout_ = ms;
   }
 
-  #ifndef OSx
-  virtual void Clash2(bool stab, float strength) {
-  #else
   virtual void Clash2(int8_t stab, float strength) {
-  #endif
     SaberBase::SetClashStrength(strength);
     #ifdef DIAGNOSE_PROP
         if (stab==1) STDOUT.println("STAB detected!");
@@ -331,11 +223,7 @@ public:
       }
     }
   }
-#ifndef OSx
-  virtual void Clash(bool stab, float strength) {
-#else 
   virtual void Clash(int8_t stab, float strength) {   // stab=-1 => reversed stab
-#endif 
     // TODO: Pick clash randomly and/or based on strength of clash.
     uint32_t t = millis();
     if (t - last_clash_ < clash_timeout_) {
@@ -361,7 +249,6 @@ public:
   }
 
   virtual bool chdir(const char* dir) {
-      TRACE(PROP, "chdir");
     if (strlen(dir) > 1 && dir[strlen(dir)-1] == '/') {
       STDOUT.println("Directory must not end with slash.");
       return false;
@@ -416,10 +303,8 @@ public:
       } else if (!SFX_swingl) {
         smooth_swing_config.Version = 0;
       }
-      #ifdef OSx
-        smooth_swing_config.ApplySensitivity(0);  // store unscaled parameters
-        smooth_swing_config.ApplySensitivity(&userProfile.swingSensitivity);  // scale parameters with sensitivity
-      #endif // OSx
+      smooth_swing_config.ApplySensitivity(0);  // store unscaled parameters
+      smooth_swing_config.ApplySensitivity(&userProfile.swingSensitivity);  // scale parameters with sensitivity
       switch (smooth_swing_config.Version) {
         case 1:
           looped_swing_wrapper.Activate(font);
@@ -434,49 +319,7 @@ public:
     return false;
   }
 
-  void SaveVolumeIfNeeded() {
-    if (0
-#ifdef SAVE_VOLUME
-      || dynamic_mixer.get_volume() != saved_global_state.volume
-#endif
-#ifdef SAVE_BLADE_DIMMING
-      || SaberBase::GetCurrentDimming() != saved_global_state.dimming
-#endif
-#ifdef SAVE_CLASH_THRESHOLD
-      || GetCurrentClashThreshold() != saved_global_state.clash_threshold
-#endif	
-      ) {
-      SaveGlobalState();
-    }
-  }
 
-  void SaveColorChangeIfNeeded() {
-#if defined(SAVE_COLOR_CHANGE) && !defined(OSx)
-    if (current_preset_.variation != SaberBase::GetCurrentVariation()) {
-      current_preset_.variation = SaberBase::GetCurrentVariation();
-      current_preset_.Save();
-    }
-#endif
-  }
-
-  void PollSaveColorChange() {
-#ifdef ENABLE_AUDIO
-    if (AmplifierIsActive()) return; // Do it later
-#endif
-    SaveColorChangeIfNeeded();
-    SaveVolumeIfNeeded();
-  }
-
-#ifndef OSx
-  bool BladeOff() {
-#ifdef IDLE_OFF_TIME
-    last_on_time_ = millis();
-#endif
-    bool on = IsOn();
-    if (on) Off();
-    return on;
-  }
-#else // OSx
   bool BladeOff(bool silent=false) {
 #ifdef IDLE_OFF_TIME
     last_on_time_ = millis();
@@ -488,7 +331,7 @@ public:
     }
     return on;
   }
-#endif // OSx
+
 
 
   void FreeBladeStyles() {  
@@ -496,64 +339,12 @@ public:
     #define UNSET_BLADE_STYLE(N) {  st = current_config->blade##N->UnSetStyle();  if (st) delete st; }
     ONCEPERBLADE(UNSET_BLADE_STYLE)
     // STDOUT.println("[FreeBladeStyles]");
-      TRACE(PROP, "FreeBladeStyles");
+
 
 
   }
-
-// // Get a address of blade indicated by  current_config.bladeX
-// inline static BladeBase* BladeAddress(uint8_t bladeNo) {
-//     switch (bladeNo) {
-//         #if NUM_BLADES >= 1
-//             case 1: return blades[0].blade1;
-//         #endif
-//          #if NUM_BLADES >= 2
-//             case 2: return blades[0].blade2;
-//         #endif
-//         #if NUM_BLADES >= 3
-//             case 3: return blades[0].blade3;
-//         #endif
-//         #if NUM_BLADES >= 4
-//             case 4: return blades[0].blade4;
-//         #endif
-//         #if NUM_BLADES >= 5
-//             case 5: return blades[0].blade5;
-//         #endif
-//         #if NUM_BLADES >= 6
-//             case 6: return blades[0].blade6;
-//         #endif                                   
-//         default: return 0;
-//     }
-// }
   
   void AllocateBladeStyles() {
-    #ifdef DYNAMIC_BLADE_LENGTH
-        savestate_.ReadINIFromSaveDir("curstate");
-    #define WRAP_BLADE_SHORTERNER(N) \
-        if (savestate_.blade##N##len != -1 && savestate_.blade##N##len != current_config->blade##N->num_leds()) { \
-          tmp = new BladeShortenerWrapper(savestate_.blade##N##len, tmp);   \
-        }
-    #else
-    #define WRAP_BLADE_SHORTERNER(N)
-    #endif
-
-
-    #if !defined(OSx) || defined(OLDPROFILE)
-      #define SET_BLADE_STYLE(N) do {                                         \
-        BladeStyle* tmp = style_parser.Parse(current_preset_.current_style##N.get()); \
-        WRAP_BLADE_SHORTERNER(N)                                            \
-        current_config->blade##N->SetStyle(tmp);                            \
-      } while (0);
-      ONCEPERBLADE(SET_BLADE_STYLE)      
-
-      #ifdef SAVE_COLOR_CHANGE
-          SaberBase::SetVariation(current_preset_.variation);
-      #else
-          SaberBase::SetVariation(0);
-      #endif
-
-    #else // OSx
-      TRACE(PROP, "AllocateBladeStyles");
       for (uint8_t i=0; i<installConfig.nBlades; i++){
         #ifdef DIAGNOSE_PRESETS
           STDOUT.print("Allocating style '"); STDOUT.print(current_preset_->bladeStyle[i]->name); 
@@ -574,57 +365,11 @@ public:
           #endif
         }            
       }
-    #endif // OSx
+
 
   }
 
-  #if !defined(OSx) || defined(OLDPROFILE)
-    // Select preset (font/style)
-    virtual void SetPreset(int preset_num, bool announce) {
-      TRACE(PROP, "start");
-      bool on = BladeOff();
-      SaveColorChangeIfNeeded();
-      // First free all styles, then allocate new ones to avoid memory
-      // fragmentation.
-      FreeBladeStyles();
-      current_preset_.SetPreset(preset_num);
-      AllocateBladeStyles();
-      chdir(current_preset_.font.get());
-      if (on) On();
-      if (announce) {
-        STDOUT << "DISPLAY: " << current_preset_name() << "\n";
-        SaberBase::DoNewFont();
-      }
-      TRACE(PROP, "end");
-    }
 
-    // Update Blade Style (no On/Off for use in Edit Mode)
-    void UpdateStyle() {
-      TRACE(PROP, "start");
-      SaveColorChangeIfNeeded();
-      // First free all styles, then allocate new ones to avoid memory
-      // fragmentation.
-      FreeBladeStyles();
-      current_preset_.SetPreset(current_preset_.preset_num);
-      AllocateBladeStyles();
-      TRACE(PROP, "end");
-    }
-
-      // Set/Update Font & Style, skips Preon effect using FastOn (for use in Edit Mode and "fast" preset changes)
-    void SetPresetFast(int preset_num) {
-      TRACE(PROP, "start");
-      bool on = BladeOff();
-      SaveColorChangeIfNeeded();
-      // First free all styles, then allocate new ones to avoid memory
-      // fragmentation.
-      FreeBladeStyles();
-      current_preset_.SetPreset(preset_num);
-      AllocateBladeStyles();
-      chdir(current_preset_.font.get());
-      if (on) FastOn();
-      TRACE(PROP, "end");
-    }
-#else // OSx
   private:
     // presetIndex starts from 0 
     void ChangePreset(uint8_t presetIndex) {
@@ -632,7 +377,6 @@ public:
         STDOUT.print("Change preset to "); STDOUT.print(presetIndex+1);   // report presets as 1, 2..., even if the actual index starts from 0
         STDOUT.print(" / "); STDOUT.print(presets.size());  STDOUT.print(". ");
       #endif
-      TRACE(PROP, "ChangePreset");
       presetIndex = presetIndex % presets.size();         // circular indexing
       FreeBladeStyles();                               // delete old styles
       if (presets.size()) {
@@ -678,288 +422,45 @@ public:
         else SaberBase::DoEffect(EFFECT_FAST_ON, 0);      
       }
     }
-
- 
-
-
-#endif // OSx
-
-
-
-  // Update Preon IntArg in Edit Mode
-  void UpdatePreon() {
-  #if !defined(OSx) || defined(OLDPROFILE)
-    TRACE(PROP, "start");
-    bool on = BladeOff();
-    SaveColorChangeIfNeeded();
-    // First free all styles, then allocate new ones to avoid memory
-    // fragmentation.
-    FreeBladeStyles();
-    current_preset_.SetPreset(current_preset_.preset_num);
-    AllocateBladeStyles();
-    chdir(current_preset_.font.get());
-    if (on) On();
-    TRACE(PROP, "end");
-  #else // OSx
-  #endif // OSx
-  }
 	
   // Go to the next Preset.
   virtual void next_preset() {
-  #if !defined(OSx) || defined(OLDPROFILE)
-    #ifdef SAVE_PRESET
-        SaveState(current_preset_.preset_num + 1);
-    #endif
-        SetPreset(current_preset_.preset_num + 1, true);
-  #else // OSx
     if (!userProfile.preset) return;    // preset error
     if (++userProfile.preset > presets.size()) userProfile.preset=1;  // circular increment 1..size
     SetPreset(userProfile.preset, true);
-  #endif // OSx
   }
 
   // Go to the next Preset skipping NewFont and Preon effects using FastOn.
   void next_preset_fast() {
-  #if !defined(OSx) || defined(OLDPROFILE)
-    #ifdef SAVE_PRESET
-        SaveState(current_preset_.preset_num + 1);
-    #endif
-        SetPresetFast(current_preset_.preset_num + 1);
-  #else // OSx
     if (!userProfile.preset) return;    // preset error
     if (++userProfile.preset > presets.size()) userProfile.preset=1;  // circular increment 1..size
     SetPresetFast(userProfile.preset);
-  #endif // OSx
+
   }
 
   // Go to the previous Preset.
   virtual void previous_preset() {
-  #if !defined(OSx) || defined(OLDPROFILE)
-    #ifdef SAVE_PRESET
-        SaveState(current_preset_.preset_num - 1);
-    #endif
-        SetPreset(current_preset_.preset_num - 1, true);
-  #else // OSx
     if (!userProfile.preset) return;    // preset error
     if (!--userProfile.preset) userProfile.preset=presets.size();  // circular decrement 1..size
-    SetPreset(userProfile.preset, true);
-  #endif // OSx     
+    SetPreset(userProfile.preset, true); 
   }
 
   // Go to the previous Preset skipping NewFont and Preon effects using FastOn.
   void previous_preset_fast() {
-  #if !defined(OSx) || defined(OLDPROFILE)  
-    #ifdef SAVE_PRESET
-        SaveState(current_preset_.preset_num - 1);
-    #endif
-        SetPresetFast(current_preset_.preset_num - 1);
-  #else // OSx
     if (!userProfile.preset) return;    // preset error
     if (!--userProfile.preset) userProfile.preset=presets.size();  // circular decrement 1..size
     SetPresetFast(userProfile.preset, false); 
-  #endif // OSx 
   }
 
-  // Rotates presets backwards and saves.
-  virtual void rotate_presets() {
-  #if !defined(OSx) || defined(OLDPROFILE)  
-    #ifdef IDLE_OFF_TIME
-        last_on_time_ = millis();
-    #endif
-    #ifdef ENABLE_AUDIO
-        beeper.Beep(0.05, 2000.0);
-    #endif
-        LOCK_SD(true);
-        current_preset_.Load(-1);  // load last preset
-        current_preset_.SaveAt(0); // save in first position, shifting all other presets down
-        LOCK_SD(false);
-        SetPreset(0, true);
-  #else // OSx
-    // get real!
-  #endif // OSx 
-  }
 
-#ifdef BLADE_DETECT_PIN
-  bool blade_detected_ = false;
-#endif
 
-  // Measure and return the blade identifier resistor.
-  float id() {
-    BLADE_ID_CLASS_INTERNAL blade_id;
-    float ret = blade_id.id();
-    STDOUT << "ID: " << ret << "\n";
-#ifdef SPEAK_BLADE_ID
-    talkie.Say(spI);
-    talkie.Say(spD);
-    talkie.SayNumber((int)ret);
-#endif
-#ifdef BLADE_DETECT_PIN
-    if (!blade_detected_) {
-      STDOUT << "NO ";
-      ret += NO_BLADE;
-    }
-    STDOUT << "Blade Detected\n";
-#endif
-    return ret;
-  }
+
 
   // Called from setup to identify the blade and select the right
   // Blade driver, style and sound font.
-  #if !defined(OSx) || defined(OLDPROFILE)
-  void FindBlade() {
-    size_t best_config = 0;
-    if (NELEM(blades) > 1) {
-      float resistor = id();
-
-      float best_err = 100000000.0;
-      for (size_t i = 0; i < NELEM(blades); i++) {
-        float err = fabsf(resistor - blades[i].ohm);
-        if (err < best_err) {
-          best_config = i;
-          best_err = err;
-        }
-      }
-    }
-    STDOUT.print("blade= ");
-    STDOUT.println(best_config);
-    current_config = blades + best_config;
-
-#define ACTIVATE(N) do {     \
-    if (!current_config->blade##N) goto bad_blade;  \
-    current_config->blade##N->Activate();           \
-  } while(0);
-
-    ONCEPERBLADE(ACTIVATE);
-    RestoreGlobalState();
-#ifdef SAVE_PRESET
-    ResumePreset();
-#else
-    SetPreset(0, false);
-#endif
-    return;
-
-#if NUM_BLADES != 0
-
-  bad_blade:
-    STDOUT.println("BAD BLADE");
-#ifdef ENABLE_AUDIO
-    talkie.Say(talkie_error_in_15, 15);
-    talkie.Say(talkie_blade_array_15, 15);
-#endif
-
-#endif
-      }
-#else // OSx installs blades at runtime from install.cod, so there's no need (or choice) for resistor-based configuration identification
   void ActivateBlades() {  
     #define ACTIVATE(N) current_config->blade##N->Activate(); 
     ONCEPERBLADE(ACTIVATE);
-  }
-#endif
-
-  SavePresetStateFile savestate_;
-
-  void ResumePreset() {
-    savestate_.ReadINIFromSaveDir("curstate");
-    SetPreset(savestate_.preset, false);
-  }
-
-  // Blade length from config file.
-  int GetMaxBladeLength(int blade) {
-#define GET_SINGLE_MAX_BLADE_LENGTH(N) if (blade == N) return current_config->blade##N->num_leds();
-    ONCEPERBLADE(GET_SINGLE_MAX_BLADE_LENGTH)
-    return 0;
-  }
-
-  // If this returns -1 use GetMaxBladeLength()
-  int GetBladeLength(int blade) {
-#ifdef DYNAMIC_BLADE_LENGTH
-#define GET_SINGLE_BLADE_LENGTH(N) if (blade == N) return savestate_.blade##N##len;
-    ONCEPERBLADE(GET_SINGLE_BLADE_LENGTH)
-#endif
-    return -1;
-  }
-
-  // You'll need to reload the styles for this to take effect.
-  void SetBladeLength(int blade, int len) {
-#ifdef DYNAMIC_BLADE_LENGTH
-#define SET_SINGLE_BLADE_LENGTH(N) if (blade == N) savestate_.blade##N##len = len;
-    ONCEPERBLADE(SET_SINGLE_BLADE_LENGTH)
-#endif
-  }
-
-  void WriteState(const char* filename) {
-    PathHelper fn(GetSaveDir(), filename);
-    savestate_.Write(fn);
-  }
-
-  void SaveState(int preset) {
-    STDOUT.println("Saving Current Preset");
-    savestate_.preset = preset;
-    WriteState("curstate.tmp");
-    WriteState("curstate.ini");
-  }
-
-  SaveGlobalStateFile saved_global_state;
-  void RestoreGlobalState() {
-#if defined(SAVE_VOLUME) || defined(SAVE_BLADE_DIMMING) || defined(SAVE_CLASH_THRESHOLD)
-    saved_global_state.ReadINIFromDir(NULL, "global");
-
-#ifdef SAVE_CLASH_THRESHOLD
-    SetClashThreshold(saved_global_state.clash_threshold);
-#endif
-
-#ifdef SAVE_VOLUME
-    if (saved_global_state.volume >= 0) {
-      dynamic_mixer.set_volume(clampi32(saved_global_state.volume, 0, VOLUME));
-    }
-#endif
-
-#ifdef SAVE_BLADE_DIMMING
-    SaberBase::SetDimming(saved_global_state.dimming);
-#endif
-
-#endif
-  }
-
-  void SaveGlobalState() {
-#if defined(SAVE_VOLUME) || defined(SAVE_BLADE_DIMMING) || defined(SAVE_CLASH_THRESHOLD)
-    STDOUT.println("Saving Global State");
-#ifdef SAVE_CLASH_THRESHOLD
-    saved_global_state.clash_threshold = GetCurrentClashThreshold();
-#endif
-#ifdef SAVE_VOLUME
-    saved_global_state.volume = dynamic_mixer.get_volume();
-#endif
-#ifdef SAVE_BLADE_DIMMING
-    saved_global_state.dimming = SaberBase::GetCurrentDimming();
-#endif
-    saved_global_state.Write("global.tmp");
-    saved_global_state.Write("global.ini");
-#endif
-  }
-
-  void FindBladeAgain() {
-  #ifndef OSx
-      if (!current_config) {
-        // FindBlade() hasn't been called yet - ignore this.
-        return;
-      }
-      // Reverse everything that FindBlade does.
-
-      // First free all styles, then allocate new ones to avoid memory
-      // fragmentation.
-      BladeStyle* st;   
-      ONCEPERBLADE(UNSET_BLADE_STYLE)
-
-  #define DEACTIVATE(N) do {                      \
-      if (current_config->blade##N)               \
-        current_config->blade##N->Deactivate();   \
-    } while(0);
-
-      ONCEPERBLADE(DEACTIVATE);
-      SaveVolumeIfNeeded();
-      FindBlade();
-  #endif
   }
 
   // Potentially called from interrupt!
@@ -977,40 +478,20 @@ public:
   virtual void DoAccel(const Vec3& accel, bool clear) {
     fusor.DoAccel(accel, clear);
     accel_loop_counter_.Update();
-    Vec3 diff = (accel - fusor.down());
+    Vec3 diff = fusor.clash_mss();
     float v;
     if (clear) {
       accel_ = accel;
       diff = Vec3(0,0,0);
       v = 0.0;
     } else {
+#ifndef PROFFIEOS_DONT_USE_GYRO_FOR_CLASH
+      v = (diff.len() + fusor.gyro_clash_value()) / 2.0;
+#else      
       v = diff.len();
+#endif      
     }
-    #ifndef OSx
-      // If we're spinning the saber, require a stronger acceleration
-      // to activate the clash.
-      if (v > CLASH_THRESHOLD_G + fusor.gyro().len() / 200.0) {
-        if ( (accel_ - fusor.down()).len2() > (accel - fusor.down()).len2() ) {
-          diff = -diff;
-        }
-        #ifndef ULTRA_PROFFIE
-        bool stab = diff.x < - 2.0 * sqrtf(diff.y * diff.y + diff.z * diff.z) &&
-          fusor.swing_speed() < 150;
-        #else 
-        bool stab = diff.x > 2.0 * sqrtf(diff.y * diff.y + diff.z * diff.z) &&
-          fusor.swing_speed() < 150;
-        #endif   
 
-
-        if (clash_pending1_) {
-          pending_clash_strength1_ = std::max<float>(v, (float)pending_clash_strength1_);
-        } else {
-          clash_pending1_ = true;
-          pending_clash_is_stab1_ = stab;
-          pending_clash_strength1_ = v;
-        }
-      }
-    #else // OSx
       accResultant = v;    // Need this for out-of-ISR detections and we're not gonna run sqrt() again!
       // Detect clash
       if (v > CLASH_THRESHOLD_G + fusor.gyro().len() / 200.0) { 
@@ -1029,7 +510,7 @@ public:
           diff = -diff;
           revStab = true;
         }
-        #ifndef ULTRA_PROFFIE
+        #if defined(PROFFIEBOARD) || ( defined(ULTRAPROFFIE) && ULTRAPROFFIE_VERSION == 'P')
           bool stab = diff.x < - STAB_DIR * sqrtf(diff.y * diff.y + diff.z * diff.z) && fusor.swing_speed() < STAB_SPEED;
         #else 
           bool stab = (diff.x > STAB_DIR * sqrtf(diff.y * diff.y + diff.z * diff.z)) && (fusor.swing_speed() < STAB_SPEED);
@@ -1042,7 +523,7 @@ public:
           clash_pending1_ = true;
         }
       }      
-    #endif // OSx
+    
 
     accel_ = accel;
   }
@@ -1070,36 +551,6 @@ public:
   };
 
   Stroke strokes[5];
-
-
-  void MonitorStrokes() {
-    if (monitor.IsMonitoring(Monitoring::MonitorStrokes)) {
-      STDOUT.print("Stroke: ");
-      switch (strokes[NELEM(strokes)-1].type) {
-        case TWIST_LEFT:
-          STDOUT.print("TwistLeft");
-          break;
-        case TWIST_RIGHT:
-          STDOUT.print("TwistRight");
-          break;
-        case SHAKE_FWD:
-          STDOUT.print("Thrust");
-          break;
-        case SHAKE_REW:
-          STDOUT.print("Yank");
-          break;
-        default: break;
-      }
-      STDOUT << " len = " << strokes[NELEM(strokes)-1].length();
-      uint32_t separation =
-        strokes[NELEM(strokes)-1].start_millis -
-        strokes[NELEM(strokes)-2].end_millis;
-      STDOUT << " separation=" << separation
-             << " mss=" << fusor.mss()
-             << " swspd=" << fusor.swing_speed()
-             << "\n";
-    }
-  }
 
   StrokeType GetStrokeGroup(StrokeType a) {
     switch (a) {
@@ -1140,7 +591,6 @@ public:
     if (strokes[NELEM(strokes) - 1].end_millis == 0 &&
         GetStrokeGroup(gesture) == GetStrokeGroup(strokes[NELEM(strokes) - 1].type)) {
       strokes[NELEM(strokes) - 1].end_millis = millis();
-      MonitorStrokes();
       return true;
     }
     // Exit here if it's a *_CLOSE stroke.
@@ -1160,70 +610,6 @@ public:
 
   
 
-#ifndef OSx
-// The prop should call this from Loop() if it wants to detect twists.
-  void DetectTwist() {
-    Vec3 gyro = fusor.gyro();
-    bool process = false;
-    if (fabsf(gyro.x) > 200.0 &&
-        fabsf(gyro.x) > 3.0f * abs(gyro.y) &&
-        fabsf(gyro.x) > 3.0f * abs(gyro.z)) {
-      process = DoGesture(gyro.x > 0 ? TWIST_LEFT : TWIST_RIGHT);
-    } else {
-      process = DoGesture(TWIST_CLOSE);
-    }
-    if (process) {
-      if ((strokes[NELEM(strokes)-1].type == TWIST_LEFT &&
-           strokes[NELEM(strokes)-2].type == TWIST_RIGHT) ||
-          (strokes[NELEM(strokes)-1].type == TWIST_RIGHT &&
-           strokes[NELEM(strokes)-2].type == TWIST_LEFT)) {
-        if (strokes[NELEM(strokes) -1].length() > 90UL &&
-            strokes[NELEM(strokes) -1].length() < 300UL &&
-            strokes[NELEM(strokes) -2].length() > 90UL &&
-            strokes[NELEM(strokes) -2].length() < 300UL) {
-          uint32_t separation =
-            strokes[NELEM(strokes)-1].start_millis -
-            strokes[NELEM(strokes)-2].end_millis;
-          if (separation < 200UL) {
-            STDOUT.println("TWIST");
-            // We have a twisting gesture.
-            Event(BUTTON_NONE, EVENT_TWIST);
-          }
-        }
-      }
-    }
-  }
-
-  // The prop should call this from Loop() if it wants to detect shakes.
-  void DetectShake() {
-    Vec3 mss = fusor.mss();
-    bool process = false;
-    if (mss.y * mss.y + mss.z * mss.z < 16.0 &&
-        (mss.x > 7 || mss.x < -6)  &&
-        fusor.swing_speed() < 150) {
-      process = DoGesture(mss.x > 0 ? SHAKE_FWD : SHAKE_REW);
-    } else {
-      process = DoGesture(SHAKE_CLOSE);
-    }
-    if (process) {
-      int i;
-      for (i = 0; i < 5; i++) {
-        if (strokes[NELEM(strokes)-1-i].type !=
-            ((i & 1) ? SHAKE_REW : SHAKE_FWD)) break;
-        if (i) {
-          uint32_t separation =
-            strokes[NELEM(strokes)-i].start_millis -
-            strokes[NELEM(strokes)-1-i].end_millis;
-          if (separation > 250) break;
-        }
-      }
-      if (i == 5) {
-        strokes[NELEM(strokes)-1].type = SHAKE_CLOSE;
-        Event(BUTTON_NONE, EVENT_SHAKE);
-      }
-    }
-  }
-#else // OSx
 
   #define TWIST_THRESHOLD   userProfile.twistSensitivity.threshold     // minimum gyro to consider it a stroke
   #define TWIST_DIR         userProfile.twistSensitivity.dir    // minimum directionality (ratio of X/Y and X/Z gyro) to consider it a stroke
@@ -1422,20 +808,6 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     // 4. Reset if quiet
     if (tapCounter && timeNow-lastClash > DTAP_MAXTIME)  tapCounter = 0;  
 
-    // if (tapCounter)
-    // if ((timeNow-lastClash > DTAP_MAXTIME+1))  {  // quiet for a little more than MAXTIME 
-    //   if (tapCounter==2) { // double tap!
-    //       Event(BUTTON_NONE, EVENT_2TAP);   // trigger event
-    //       lastClash = -timeNow;
-    //       #if defined(X_BROADCAST) && defined(BROADCAST_2TAP)
-    //         Detected2Tap = true;  // broadcast double-tap for QUIETTIME [ms]
-    //       #endif
-    //       STDOUT.println("2xTAP detected! ");     
-    //   }
-    //   tapCounter = 0;     // reset counter, regardless 
-    //   // STDOUT.println(tapCounter); 
-
-    // }
   }  
 
 #if defined(X_BROADCAST) && defined(BROADCAST_2TAP)
@@ -1454,7 +826,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
   }
 
 
-#endif // OSx
+
 
   bool swinging_ = false;
   // The prop should call this from Loop() if it wants to detect swings as an event.
@@ -1465,18 +837,6 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     }
     if (swinging_ && fusor.swing_speed() < 100) {
       swinging_ = false;
-    }
-  }
-
-  void SB_Motion(const Vec3& gyro, bool clear) override {
-    if (monitor.ShouldPrint(Monitoring::MonitorGyro)) {
-      // Got gyro data
-      STDOUT.print("GYRO: ");
-      STDOUT.print(gyro.x);
-      STDOUT.print(", ");
-      STDOUT.print(gyro.y);
-      STDOUT.print(", ");
-      STDOUT.println(gyro.z);
     }
   }
 
@@ -1492,11 +852,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       EnableAmplifier();
       track_player_ = GetFreeWavPlayer();
       if (track_player_) {
-        #if !defined(OSx) || defined(OLDPROFILE)        
-          track_player_->Play(current_preset_.track.get());
-        #else // OSx
           track_player_->Play(current_preset_->track);
-        #endif // OSx
       } else {
         STDOUT.println("No available WAV players.");
       }
@@ -1506,16 +862,6 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
 #endif
   }
 
-#if !defined(OSx) || defined(OLDPROFILE)
-  void ListTracks(const char* dir) {
-    if (!LSFS::Exists(dir)) return;
-    for (LSFS::Iterator i2(dir); i2; ++i2) {
-      if (endswith(".wav", i2.name()) && i2.size() > 200000) {
-          STDOUT << dir << "/" << i2.name() << "\n";
-      }
-    }
-  }
-#else 
   void ListTracks(const char* dir, FileReader* fileWriter) {
     if (!LSFS::Exists(dir)) return;
     for (LSFS::Iterator i2(dir); i2; ++i2) {
@@ -1531,7 +877,6 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       }
     }
   }
-#endif
 
   virtual void LowBatteryOff() {
     if (SaberBase::IsOn()) {
@@ -1542,7 +887,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
   }
 
   virtual void CheckLowBattery() {
-  #ifndef ULTRA_PROFFIE
+  #if defined(PROFFIEBOARD) || ( defined(ULTRAPROFFIE) && ULTRAPROFFIE_VERSION == 'P')
     if (battery_monitor.low()) {
       if (current_style() && !current_style()->Charging()) {
         LowBatteryOff();
@@ -1566,16 +911,10 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     SaberBase::DoAccel(fusor.accel(), clear);
     SaberBase::DoMotion(fusor.gyro(), clear);
 
-    if (monitor.ShouldPrint(Monitoring::MonitorClash)) {
-      STDOUT << "ACCEL: " << fusor.accel() << "\n";
-    }
   }
   volatile bool clash_pending1_ = false;
-#ifndef OSx
-  volatile bool pending_clash_is_stab1_ = false;
-#else // OSx
   volatile int8_t pending_clash_is_stab1_ = 0;  // -1 = reversed stab
-#endif // OSx
+
 
   volatile float pending_clash_strength1_ = 0.0;
 
@@ -1599,53 +938,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     }
 #endif
 
-#ifndef DISABLE_COLOR_CHANGE
-#define TICK_ANGLE (M_PI * 2 / 12)
-    switch (SaberBase::GetColorChangeMode()) {
-      case SaberBase::COLOR_CHANGE_MODE_NONE:
-        break;
-      case SaberBase::COLOR_CHANGE_MODE_STEPPED: {
-        float a = fusor.angle2() - current_tick_angle_;
-        if (a > M_PI) a-=M_PI*2;
-        if (a < -M_PI) a+=M_PI*2;
-        if (a > TICK_ANGLE * 2/3) {
-          current_tick_angle_ += TICK_ANGLE;
-          if (current_tick_angle_ > M_PI) current_tick_angle_ -= M_PI * 2;
-          STDOUT << "TICK+\n";
-          SaberBase::UpdateVariation(1);
-        }
-        if (a < -TICK_ANGLE * 2/3) {
-          current_tick_angle_ -= TICK_ANGLE;
-          if (current_tick_angle_ < M_PI) current_tick_angle_ += M_PI * 2;
-          STDOUT << "TICK-\n";
-          SaberBase::UpdateVariation(-1);
-        }
-        break;
-      }
-      case SaberBase::COLOR_CHANGE_MODE_ZOOMED: {
-#define ZOOM_ANGLE (M_PI * 2 / 2000)
-        float a = fusor.angle2() - current_tick_angle_;
-        if (a > M_PI) a-=M_PI*2;
-        if (a < -M_PI) a+=M_PI*2;
-        int steps = (int)floor(fabs(a) / ZOOM_ANGLE - 0.3);
-        if (steps < 0) steps = 0;
-        if (a < 0) steps = -steps;
-        current_tick_angle_ += ZOOM_ANGLE * steps;
-        SaberBase::SetVariation(0x7fff & (SaberBase::GetCurrentVariation() + steps));
-        break;
-      }
-      case SaberBase::COLOR_CHANGE_MODE_SMOOTH:
-        float a = fmodf(fusor.angle2() - current_tick_angle_, M_PI * 2);
-        SaberBase::SetVariation(0x7fff & (int32_t)(a * (32768 / (M_PI * 2))));
-        break;
-    }
-    if (monitor.ShouldPrint(Monitoring::MonitorVariation)) {
-      STDOUT << " variation = " << SaberBase::GetCurrentVariation()
-             << " ccmode = " << SaberBase::GetColorChangeMode()
-//           << " color = " << current_config->blade1->current_style()->getColor(0)
-             << "\n";
-    }
-#endif
+
 
 
 #ifdef IDLE_OFF_TIME
@@ -1659,43 +952,12 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     }
 #endif
 
-    PollSaveColorChange();
   }
 
 #ifdef IDLE_OFF_TIME
   uint32_t last_on_time_;
 #endif
 
-#ifndef DISABLE_COLOR_CHANGE
-  void ToggleColorChangeMode() {
-    if (!current_style()) return;
-    if (SaberBase::GetColorChangeMode() == SaberBase::COLOR_CHANGE_MODE_NONE) {
-      current_tick_angle_ = fusor.angle2();
-      bool handles_color_change = false;
-#define CHECK_SUPPORTS_COLOR_CHANGE(N) \
-      handles_color_change |= current_config->blade##N->current_style() && current_config->blade##N->current_style()->IsHandled(HANDLED_FEATURE_CHANGE_TICKED);
-      ONCEPERBLADE(CHECK_SUPPORTS_COLOR_CHANGE)
-      if (!handles_color_change) {
-        STDOUT << "Entering smooth color change mode.\n";
-        current_tick_angle_ -= SaberBase::GetCurrentVariation() * M_PI * 2 / 32768;
-        current_tick_angle_ = fmodf(current_tick_angle_, M_PI * 2);
-
-        SaberBase::SetColorChangeMode(SaberBase::COLOR_CHANGE_MODE_SMOOTH);
-      } else {
-#ifdef COLOR_CHANGE_DIRECT
-        STDOUT << "Color change, TICK+\n";
-        SaberBase::UpdateVariation(1);
-#else
-        STDOUT << "Entering stepped color change mode.\n";
-        SaberBase::SetColorChangeMode(SaberBase::COLOR_CHANGE_MODE_STEPPED);
-#endif
-      }
-    } else {
-      STDOUT << "Color change mode done, variation = " << SaberBase::GetCurrentVariation() << "\n";
-      SaberBase::SetColorChangeMode(SaberBase::COLOR_CHANGE_MODE_NONE);
-    }
-  }
-#endif // DISABLE_COLOR_CHANGE
 
   virtual void PrintButton(uint32_t b) {
     if (b & BUTTON_POWER) STDOUT.print("Power");
@@ -1725,7 +987,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       case EVENT_HELD_MEDIUM: STDOUT.print("HeldMedium"); break;
       case EVENT_HELD_LONG: STDOUT.print("HeldLong"); break;
       case EVENT_CLICK_SHORT: STDOUT.print("Shortclick"); break;
-    #ifdef ULTRA_PROFFIE
+    #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
       case EVENT_CLICK_MEDIUM: STDOUT.print("MEDIUMclick"); break;
     #endif
       case EVENT_CLICK_LONG: STDOUT.print("Longclick"); break;
@@ -1767,27 +1029,17 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
 
   bool Parse(const char *cmd, const char* arg) override {
 
-    #ifndef OSx
-      if (!strcmp(cmd, "id")) {
-        id();
-        return true;
-      }
-      if (!strcmp(cmd, "scanid")) {
-        FindBladeAgain();
-        return true;
-      }
-    #else // OSx
-      if (!strcmp(cmd, "stealth")) {
-        // stealthMode = !stealthMode;
-        SetStealth(!stealthMode); 
-        return true;
-      }
-      #ifdef X_MENUTEST
-        // parse menu commands as well, if needed
-        if (menu)
-          if (menu->Parse(cmd, arg)) return true;   
-      #endif  // X_MENUTEST  
-    #endif // OSx
+    if (!strcmp(cmd, "stealth")) {
+      // stealthMode = !stealthMode;
+      SetStealth(!stealthMode); 
+      return true;
+    }
+    #ifdef X_MENUTEST
+      // parse menu commands as well, if needed
+      if (menu)
+        if (menu->Parse(cmd, arg)) return true;   
+    #endif  // X_MENUTEST  
+
 
     if (!strcmp(cmd, "on")) {
         On();      
@@ -2004,75 +1256,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       return true;
     }
   
-  // no preset editing commands on OSx -> use XML 
-  #if !defined(OSx) || defined(OLDPROFILE)    
-    if (!strcmp(cmd, "rotate")) {
-      rotate_presets();
-      return true;
-    }
 
-    if (!strcmp(cmd, "list_presets")) {
-      CurrentPreset tmp;
-      for (int i = 0; ; i++) {
-        tmp.SetPreset(i);
-        if (tmp.preset_num != i) break;
-        tmp.Print();
-      }
-      return true;
-    }
-
-    if (!strcmp(cmd, "set_font") && arg) {
-      current_preset_.font = mkstr(arg);
-      current_preset_.Save();
-      return true;
-    }
-
-    if (!strcmp(cmd, "set_track") && arg) {
-      current_preset_.track = mkstr(arg);
-      current_preset_.Save();
-      return true;
-    }
-
-    if (!strcmp(cmd, "set_name") && arg) {
-      current_preset_.name = mkstr(arg);
-      current_preset_.Save();
-      return true;
-    }
-
-    #define SET_STYLE_CMD(N)                             \
-    if (!strcmp(cmd, "set_style" #N) && arg) {        \
-      current_preset_.current_style##N = mkstr(arg); \
-      current_preset_.Save();                        \
-      return true;                                   \
-    }
-    ONCEPERBLADE(SET_STYLE_CMD)
-
-
-    if (!strcmp(cmd, "move_preset") && arg) {
-      int32_t pos = strtol(arg, NULL, 0);
-      current_preset_.SaveAt(pos);
-      return true;
-    }
-
-    if (!strcmp(cmd, "duplicate_preset") && arg) {
-      int32_t pos = strtol(arg, NULL, 0);
-      current_preset_.preset_num = -1;
-      current_preset_.SaveAt(pos);
-      return true;
-    }
-
-    if (!strcmp(cmd, "delete_preset") && arg) {
-      current_preset_.SaveAt(-1);
-      return true;
-    }
-
-    if (!strcmp(cmd, "show_current_preset")) {
-        current_preset_.Print();
-      return true;
-    }
-
-    
-  #else // OSx
     if (!strcmp(cmd, "list_presets")) {
        list_presets();       
       return true;
@@ -2114,76 +1298,10 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
     }
    #endif // ENABLE_DIAGNOSE_COMMANDS
 
-  #endif // OSx
+  
 
-   
+  
 
-#if defined(DYNAMIC_BLADE_LENGTH) && !defined(OSx) 
-    if (!strcmp(cmd, "get_max_blade_length") && arg) {
-      STDOUT.println(GetMaxBladeLength(atoi(arg)));
-      return true;
-    }
-    if (!strcmp(cmd, "get_blade_length") && arg) {
-      STDOUT.println(GetBladeLength(atoi(arg)));
-      return true;
-    }
-    if (!strcmp(cmd, "set_blade_length") && arg) {
-      SetBladeLength(atoi(arg), atoi(SkipWord(arg)));
-      SaveState(current_preset_.preset_num);
-      // Reload preset to make the change take effect.
-      SetPreset(current_preset_.preset_num, false);
-      return true;
-    }
-#endif
-
-#if defined(DYNAMIC_BLADE_DIMMING) && !defined(OSx) 
-    if (!strcmp(cmd, "get_blade_dimming")) {
-      STDOUT.println(SaberBase::GetCurrentDimming());
-      return true;
-    }
-    if (!strcmp(cmd, "set_blade_dimming") && arg) {
-      SaberBase::SetDimming(atoi(arg));
-      return true;
-    }
-#endif
-
-#if defined(DYNAMIC_CLASH_THRESHOLD) && !defined(OSx) 
-    if (!strcmp(cmd, "get_clash_threshold")) {
-      STDOUT.println(GetCurrentClashThreshold());
-      return true;
-    }
-    if (!strcmp(cmd, "set_clash_threshold") && arg) {
-      SetClashThreshold(parsefloat(arg));
-      return true;
-    }
-#endif    
-
-  #if !defined(OSx) || defined(OLDPROFILE)
-    if (!strcmp(cmd, "get_preset")) {
-      STDOUT.println(current_preset_.preset_num);
-      return true;
-    }
-
-    if (!strcmp(cmd, "get_volume")) {
-    #ifdef ENABLE_AUDIO
-          STDOUT.println(dynamic_mixer.get_volume());
-    #else
-          STDOUT.println(0);
-    #endif
-          return true;
-    }
-
-    if (!strcmp(cmd, "set_volume") && arg) {
-    #ifdef ENABLE_AUDIO
-          int32_t volume = strtol(arg, NULL, 0);
-          if (volume >= 0 && volume <= VOLUME) {
-            dynamic_mixer.set_volume(volume);
-            PollSaveColorChange();
-          }
-    #endif
-          return true;
-    }
-  #else // OSx   
     if (!strcmp(cmd, "get_usersettings")) {            
       bool guarded=false;
       if (arg) {
@@ -2227,7 +1345,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
               if(!stealthMode) {  // apply volume if currently in use
                 userProfile.masterVolume = numVal;
                 dynamic_mixer.set_volume(VOLUME);
-                #ifdef ULTRA_PROFFIE
+                #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
                 if (!userProfile.masterVolume) {
                   SilentEnableAmplifier(false);
                   SilentEnableBooster(false);
@@ -2246,7 +1364,7 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
               if(stealthMode) {  // apply volume if currently in use
                 userProfile.masterVolume = numVal;
                 dynamic_mixer.set_volume(VOLUME);
-                #ifdef ULTRA_PROFFIE
+                #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
                 if (!userProfile.masterVolume) {
                   SilentEnableAmplifier(false);
                   SilentEnableBooster(false);
@@ -2401,7 +1519,8 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
 
     if (!strcmp(cmd, "get_color")) {
         STDOUT.println("get_color-START");
-        STDOUT.println(current_preset_->variation);
+        if(current_preset_)
+          STDOUT.println(current_preset_->variation);
         STDOUT.println("get_color-END");
         return true;
     }
@@ -2417,100 +1536,12 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
 
    
 
-#endif // OSx
+
       
 
 
-#ifndef OSx
-    if (!strcmp(cmd, "mute")) {
-      SetMute(true);
-      return true;
-    }
-    if (!strcmp(cmd, "unmute")) {
-      SetMute(false);
-      return true;
-    }
-    if (!strcmp(cmd, "toggle_mute")) {
-      if (!SetMute(true)) SetMute(false);
-      return true;
-    }
-#endif
 
-  #if !defined(OSx) || defined(OLDPROFILE)
-    if (!strcmp(cmd, "set_preset") && arg) {
-      int preset = strtol(arg, NULL, 0);
-      SetPreset(preset, true);
-      return true;
-    }
-
-    if (!strcmp(cmd, "change_preset") && arg) {
-      int preset = strtol(arg, NULL, 0);
-      if (preset != current_preset_.preset_num) {
-        SetPreset(preset, true);
-      }
-      return true;
-    }
-     
-     #ifndef DISABLE_COLOR_CHANGE
-          if (arg && (!strcmp(cmd, "var") || !strcmp(cmd, "variation"))) {
-            size_t variation = strtol(arg, NULL, 0);
-            SaberBase::SetVariation(variation);
-            return true;
-          }
-
-          if (!strcmp(cmd, "ccmode")) {
-            ToggleColorChangeMode();
-            return true;
-          }
-    #endif
-
-#ifdef ENABLE_SD
-    if (!strcmp(cmd, "list_tracks")) {
-      // Tracks are must be in: tracks/*.wav or */tracks/*.wav
-      LOCK_SD(true);
-      ListTracks("tracks");
-      for (LSFS::Iterator iter("/"); iter; ++iter) {
-        if (iter.isdir()) {
-          PathHelper path(iter.name(), "tracks");
-          ListTracks(path);
-        }
-      }
-      LOCK_SD(false);
-      return true;
-    }
-
-    if (!strcmp(cmd, "list_fonts")) {
-      LOCK_SD(true);
-      for (LSFS::Iterator iter("/"); iter; ++iter) {
-        if (iter.isdir()) {
-          char fname[128];
-          strcpy(fname, iter.name());
-          strcat(fname, "/");
-          char* fend = fname + strlen(fname);
-          bool isfont = false;
-          if (!isfont) {
-            strcpy(fend, "hum.wav");
-            isfont = LSFS::Exists(fname);
-          }
-          if (!isfont) {
-            strcpy(fend, "hum01.wav");
-            isfont = LSFS::Exists(fname);
-          }
-          if (!isfont) {
-            strcpy(fend, "hum");
-            isfont = LSFS::Exists(fname);
-          }
-          if (isfont) {
-            STDOUT.println(iter.name());
-          }
-        }
-      }
-      LOCK_SD(false);
-      return true;
-    }
-#endif
-
-  #else // OSx     
+  
     if (!strcmp(cmd, "list_styles")) {
       list_styles(NULL);
       return true;
@@ -2526,13 +1557,12 @@ void Detect2Tap(float acc)  {  // Got acceleration resultant from DoAccel()
       return true;
     }  
 
-  #endif // OSx
+
 
   return false;
 
   }
 
-  #if defined(OSx) && !defined(OLDPROFILE)
   void list_styles(FileReader* fileWriter)
   {   
       if(fileWriter)LOCK_SD(true);
@@ -2687,11 +1717,11 @@ void list_profile(FileReader* fileWriter = 0) {
      }      
 }
 
-  #endif
+  
 
  void Help() override {
-    #if defined(COMMANDS_HELP) || !defined(OSx)
-        #if defined(OSx) && defined(X_MENUTEST)
+    #if defined(COMMANDS_HELP) 
+        #if defined(X_MENUTEST)
           // parse menu commands as well, if needed
           if (menu) menu->Help();
         #endif
@@ -2714,31 +1744,6 @@ void list_profile(FileReader* fileWriter = 0) {
     #endif
   }
 
-#ifndef OSx
-virtual bool Event(enum BUTTON button, EVENT event) {
-    PrintEvent(button, event);
-
-    switch (event) {
-      case EVENT_RELEASED:
-        clash_pending_ = false;
-      case EVENT_PRESSED:
-        IgnoreClash(50); // ignore clashes to prevent buttons from causing clashes
-      default:
-        break;
-    }
-
-    if (Event2(button, event, current_modifiers | (IsOn() ? MODE_ON : MODE_OFF))) {
-      current_modifiers = 0;
-      return true;
-    }
-    if (Event2(button, event,  MODE_ANY_BUTTON | (IsOn() ? MODE_ON : MODE_OFF))) {
-      // Not matching modifiers, so no need to clear them.
-      current_modifiers &= ~button;
-      return true;
-    }
-    return false;
-  }
-#else // OSx
 
 
 bool PassEventToProp(enum BUTTON button, EVENT event) {
@@ -2776,8 +1781,8 @@ virtual bool Event(enum BUTTON button, EVENT event) {
         break;
     }
 
-    // if (menu) return menu->Event(button, event);   // redirect event to xMenu, if assigned to prop
-    if (menu)   // redirect event to xMenu, if assigned to prop
+    // if (menu) return menu->Event(button, event);   // redirect event to TTMenu, if assigned to prop
+    if (menu)   // redirect event to TTMenu, if assigned to prop
       if (menu->IsActive())
         if (menu->Event(button, event)) // release events to prop if the menu did not want them
             return true;   
@@ -2786,7 +1791,7 @@ virtual bool Event(enum BUTTON button, EVENT event) {
   }
 
 
-#endif // OSx
+
 
   
 
@@ -2798,15 +1803,13 @@ protected: // was private:
     if (current_style() && current_style()->NoOnOff())
       return false;
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
+#if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
     RequestPower();     // get power for CPU
     EnableMotion();
 #endif
 
     activated_ = millis();
-    #ifndef OSx
-      STDOUT.println("Ignition.");
-    #endif
+    // STDOUT.println("Ignition.");
     MountSDCard();
     EnableAmplifier();
     SaberBase::RequestMotion();
@@ -2818,16 +1821,12 @@ protected: // was private:
   }
 
 public: // was protected
-  #if !defined(OSx) || defined(OLDPROFILE)
-    CurrentPreset current_preset_;
-  #else // OSx
-    xPreset* current_preset_;
+    Preset* current_preset_;
     volatile float accResultant = 0;
     bool stealthMode = false, setStealth = false;
   
     virtual void SetStealth(bool newStealthMode, uint8_t announce = true) {}
 
-  #endif
   LoopCounter accel_loop_counter_;
 };
 

@@ -17,8 +17,22 @@ static uint8_t bump_shape[33] = {
   26,22,18,14,11,9,7,5,0
 };
 
+class BumpBase {
+public:
+  int getInteger(int led) {
+    uint32_t dist = abs(led * mult_ - location_);
+    uint32_t p = dist >> 7;
+    if (p >= NELEM(bump_shape) - 1) return 0;
+    int m = dist & 0x3f;
+    return bump_shape[p] * (128 - m) + bump_shape[p+1] * m;
+  }
+protected:
+  int location_;
+  int mult_;
+};
+
 template<class BUMP_POSITION, class BUMP_WIDTH_FRACTION = Int<16385> >
-class Bump {
+class Bump : public BumpBase {
 public:
   void run(BladeBase* blade) {
     pos_.run(blade);
@@ -33,33 +47,37 @@ public:
     mult_ = mult;
     location_ = (pos_.calculate(blade) * blade->num_leds() * mult) / 32768;
   }
-  int getInteger(int led) {
-    uint32_t dist = abs(led * mult_ - location_);
-    uint32_t p = dist >> 7;
-    if (p >= NELEM(bump_shape) - 1) return 0;
-    int m = dist & 0x3f;
-    return bump_shape[p] * (128 - m) + bump_shape[p+1] * m;
-  }
 private:
   PONUA SVFWrapper<BUMP_POSITION> pos_;
   PONUA SVFWrapper<BUMP_WIDTH_FRACTION> fraction_;
-  int location_;
-  int mult_;
 };
 
-template<int HUMP_WIDTH>
-class HumpFlickerF {
+// Usage: HumpFlickerFX<FUNCTION>
+// or: HumpFlickerF<N>
+// FUNCTION: FUNCTION
+// N: NUMBER
+// return value: INTEGER
+// Creates hump shapes that randomize over the blade.
+// The returned INTEGER is the size of the humps.
+// Large values can give the blade a shimmering look, 
+// while small values look more like speckles.
+
+template<class HUMP_WIDTH>
+class HumpFlickerFX {
 public:
   void run(BladeBase* blade) {
-    int num_leds_ = blade->num_leds();
-    pos_ = random(num_leds_);
+    hump_width_.run(blade);
+    int num_leds = blade->num_leds();
+    pos_ = random(num_leds);
   }
   int getInteger(int led) {
-    return clampi32(abs(led - pos_) * 32768 / HUMP_WIDTH, 0, 32768);
+    return clampi32(abs(led - pos_) * 32768 / hump_width_.getInteger(led), 0, 32768);
   }
 private:
+  PONUA HUMP_WIDTH hump_width_;
   int pos_;
 };
 
+template<int HUMP_WIDTH> using HumpFlickerF = HumpFlickerFX<Int<HUMP_WIDTH>>;
 
 #endif

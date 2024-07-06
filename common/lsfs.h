@@ -19,7 +19,12 @@ struct PathHelper {
     strcat(path_, ext);
   }
   void Set(const char* path) {
+#ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+    strcpy(path_, path ? "/" : "");
+    strcpy(&path_[1], path ? path : "");
+#else
     strcpy(path_, path ? path : "");
+#endif
   }
   void Set(const char* path, const char* p2) {
     Set(path);
@@ -141,6 +146,11 @@ public:
   static File Open(const char* path) {
     return fopen(path, "r");
   }
+  static File OpenRW(const char* path) {
+    File ret = fopen(path, "r+");
+    if (ret) return ret;
+    return OpenForWrite(path);
+  }
   static File OpenFast(const char* path) {
     return fopen(path, "r");
   }
@@ -182,87 +192,8 @@ public:
   };
 };
 
-#elif defined(TEENSYDUINO)
-
-#include <SD.h>
-
-class LSFS {
-public:
-  typedef File FILE;
-  static bool Begin() {
-#if defined(__MK64FX512__) || defined(__MK66FX1M0__)
-    // Prefer the built-in sd card for Teensy 3.5/3.6 as it is faster.
-    return SD.begin(BUILTIN_SDCARD);
-#else 
-    return SD.begin(sdCardSelectPin);
-#endif    
-  }
-  static bool End() {
-    return true;
-  }
-  static bool Exists(const char* path) {
-    return SD.exists(path);
-  }
-  static bool Remove(const char* path) {
-    return SD.remove(path);
-  }
-  static File Open(const char* path) {
-    if (!SD.exists(path)) return File();
-    return SD.open(path);
-  }
-  static File OpenFast(const char* path) {
-    // At some point, I put this check in here to make sure that the file
-    // exists before we try to open it, as opening directories and other
-    // weird files can cause open() to hang. However, this check takes
-    // too long, and causes audio underflows, so we're going to need a
-    // different approach to not opening directories and weird files. /Hubbe
-    // if (!SD.exists(path)) return File();
-    return SD.open(path);
-  }
-  static File OpenForWrite(const char* path) {
-    File f =  SD.open(path, FILE_WRITE);
-    if (!f) {
-      PathHelper tmp(path);
-      if (tmp.Dirname()) {
-	SD.mkdir(tmp);
-	f =  SD.open(path, FILE_WRITE);
-      }
-    }
-    return f;
-  }
-  class Iterator {
-  public:
-    explicit Iterator(const char* dirname) {
-      dir_ = SD.open(dirname);
-      if (dir_.isDirectory()) {
-	f_ = dir_.openNextFile();
-      }
-    }
-    explicit Iterator(Iterator& other) {
-      dir_ = other.f_;
-      other.f_ = File();
-      f_ = dir_.openNextFile();
-    }
-    ~Iterator() {
-      dir_.close();
-      f_.close();
-    }
-    void operator++() {
-      f_.close();
-      f_ = dir_.openNextFile();
-    }
-    operator bool() { return f_; }
-    bool isdir() { return f_.isDirectory(); }
-    const char* name() { return f_.name(); }
-    size_t size() { return f_.size(); }
-    
-  private:
-    File dir_;
-    File f_;
-  };
-};
-#else
-
+#elif defined(ARDUINO_ARCH_STM32L4) // STM Architecture
+   
 #include <FS.h>
 
 // Workaround for badly named variable
@@ -325,6 +256,12 @@ public:
     if (!mounted_) return File();
     return DOSFS.open(path, "r");
   }
+  static File OpenRW(const char* path) {
+    if (!mounted_) return File();
+    File f = DOSFS.open(path, "r+");
+    if (!f) f = OpenForWrite(path);
+    return f;
+  }
   static File OpenFast(const char* path) {
     if (!mounted_) return File();
     return DOSFS.open(path, "r");
@@ -337,13 +274,13 @@ public:
     }
     DOSFS.mkdir(p);
   }
-  #ifdef OSx
+  
   static bool RenamePath(const char* pathFrom, const char* pathTo)
   {
     return DOSFS.rename(pathFrom, pathTo);
   }
-  #endif
-  // #ifdef OSx // TODO uncomment 
+  
+  
   static File OpenForOverWrite(const char* path) {
     if (!mounted_) return File();
     return DOSFS.open(path, "r+");
@@ -410,6 +347,256 @@ private:
 };
 
 bool LSFS::mounted_ = false;
-#endif // TEENSYDUINO
+
+
+#elif defined(ARDUINO_ARCH_ESP32) // ESP architecture
+#define PROFFIE_ESP_SDMMC
+#include "FS.h"
+#if defined(PROFFIE_ESP_SDMMC)
+#include "SD_MMC.h"
+#define DOSFS SD_MMC
+#define DOSFS_SDMMC_CLK   38
+#define DOSFS_SDMMC_CMD   37
+#define DOSFS_SDMMC_D0    36
+#define DOSFS_SDMMC_D1    35
+#define DOSFS_SDMMC_D2    34
+#define DOSFS_SDMMC_D3    33
+#elif defined(PROFFIE_ESP_SDSPI)
+#include "SD.h"
+#include "SPI.h"
+
+#define SDSPI_VSPI_SCK   18
+#define SDSPI_VSPI_MISO  19
+#define SDSPI_VSPI_MOSI  23
+#define SDSPI_VSPI_CS    5
+
+SPIClass sdspi_periph = SPIClass(FSPI);
+#define DOSFS SD
+
+#else
+#error "Invalid an SD interface "
+#endif
+
+class LSFS {
+public:
+  typedef File FILE;
+  static bool IsMounted() {
+    return mounted_;
+  }
+  static bool CanMount() {
+    // TODO add logic to check if we can mount
+    return true;
+  }
+  static void WhyBusy(char *tmp) {
+    *tmp = 0;
+    // // dosfs_volume_t *volume = DOSFS_DEFAULT_VOLUME();
+    // dosfs_device_t *device = DOSFS_VOLUME_DEVICE(volume);
+    // if (device->lock & DOSFS_DEVICE_LOCK_VOLUME)
+    //   strcat(tmp, " volume");
+    // if (device->lock & DOSFS_DEVICE_LOCK_SCSI)
+    //   strcat(tmp, " scsi");
+    // if (device->lock & DOSFS_DEVICE_LOCK_MEDIUM)
+    //   strcat(tmp, " medium");
+    // if (device->lock & DOSFS_DEVICE_LOCK_INIT)
+    //   strcat(tmp, " init");
+
+    // TODO add logic to find out why is busy 
+  }
+  // This function waits until the volume is mounted.
+  static bool Begin() {
+    if (mounted_) return true; 
+    #if defined(PROFFIE_ESP_SDMMC)
+    DOSFS.setPins(DOSFS_SDMMC_CLK, DOSFS_SDMMC_CMD, DOSFS_SDMMC_D0, DOSFS_SDMMC_D1, DOSFS_SDMMC_D2, DOSFS_SDMMC_D3);
+    if (!DOSFS.begin("/sdcard", false, false, SDMMC_FREQ_HIGHSPEED, 16)) return false; //20000    SDMMC_FREQ_HIGHSPEED SDMMC_FREQ_DEFAULT
+    #elif defined(PROFFIE_ESP_SDSPI)
+    sdspi_periph.begin(SDSPI_VSPI_SCK, SDSPI_VSPI_MISO, SDSPI_VSPI_MOSI, SDSPI_VSPI_CS);
+    if (!DOSFS.begin(SDSPI_VSPI_CS, sdspi_periph, 25000000, "/sdcard")) return false;
+    #endif
+    // if (!DOSFS.check()) {   //TODO add logic to make a sd check 
+    //   DOSFS.end();
+    //   return false;
+    // }
+    return mounted_ = true;
+  }
+
+  static void correctPath(char* destPath, const char* sourcePath)  __attribute__((optimize("Ofast")))
+  {
+    strcpy(destPath, "/");
+    strcpy((destPath + 1), sourcePath);
+  }
+  static void End() {
+    if (!mounted_) return;
+    DOSFS.end();
+    #if defined(PROFFIE_ESP_SDSPI)
+      sdspi_periph.end();
+    #endif
+    mounted_ = false;
+  }
+  static bool Exists(const char* path) {
+    if (!mounted_) return false;
+    correctPath(_correctedPath, path);
+    return DOSFS.exists(_correctedPath);   // was path 
+  }
+  static bool Remove(const char* path) {
+    if (!mounted_) return false;
+    correctPath(_correctedPath, path);
+    return DOSFS.remove(_correctedPath);
+  }
+  static File Open(const char* path)  __attribute__((optimize("Ofast"))) {
+    if (!mounted_) return File();
+    openTime = micros();
+    correctPath(_correctedPath, path);
+    File f = DOSFS.open(_correctedPath, "r");
+    openTime = micros() - openTime;
+    return f;
+  }
+
+  static File OpenRW(const char* path) {
+    if (!mounted_) return File();
+    File f = DOSFS.open(path, "r+");
+    if (!f) f = OpenForWrite(path);
+    return f;
+  }
+
+  static File OpenFast(const char* path)  __attribute__((optimize("Ofast"))) {
+    if (!mounted_) return File();
+    openTime = micros();
+    correctPath(_correctedPath, path);
+    File f = DOSFS.open(_correctedPath, "r");
+    openTime = micros() - openTime;
+    return f;
+  }
+
+  static bool RenamePath(const char* pathFrom, const char* pathTo)
+  {
+    return DOSFS.rename(pathFrom, pathTo);
+  }
+
+
+  static void mkdir(PathHelper& p) {
+    if (!mounted_) return;
+    if (p.Dirname()) {
+      mkdir(p);
+      p.UndoDirname();
+    }
+    DOSFS.mkdir(p);
+  }
+
+  static File OpenForOverWrite(const char* path) {
+    if (!mounted_) return File();
+    correctPath(_correctedPath, path);
+    File f = DOSFS.open(_correctedPath, "r+");
+    return f;
+  }
+
+  static File OpenForWrite(const char* path) {
+    if (!mounted_) return File();
+    correctPath(_correctedPath, path);
+    File f = DOSFS.open(_correctedPath, "w");
+    if (!f) {
+      PathHelper tmp(_correctedPath);
+      if (tmp.Dirname()) {
+	mkdir(tmp);
+	f = DOSFS.open(_correctedPath, "w");
+      }
+    }
+    
+    return f;
+  }
+
+  static void PrintLastOpenFileTime()
+  {
+    STDOUT.print("Last open file time ");STDOUT.print(openTime); STDOUT.println(" us");
+  }
+
+  class Iterator {
+  public:
+    explicit Iterator(const char* path) {
+
+      strcpy(_path, path);
+
+      if (!strlen(path) && (path[strlen(path)-1] != '/') )   //  (strlen(path) == 1) && 
+        strcat(_path, "/");
+      
+      //Serial.print("path Len "); Serial.println(strlen(path));
+
+      // PathHelper filename(_path, "*.*");
+      PathHelper filename(_path);
+      if (!mounted_ || ( !(_find = DOSFS.open(filename))) ) {
+        find_clsno = 0x0fffffff;
+      } else {
+        _ffind = File();
+      }
+      
+    }
+    explicit Iterator(Iterator& other) {
+      strcpy(_path, other._path);
+      strcat(_path, other.name());
+
+      if (!strlen(_path) && (_path[strlen(_path)-1] != '/') )   //  (strlen(path) == 1) && 
+        strcat(_path, "/");
+
+      // PathHelper filename(_path, "*.*");
+      PathHelper filename(_path);
+      if (!mounted_ || ( !(_find = DOSFS.open(filename)))) {
+        find_clsno = 0x0fffffff;
+      } else {
+        _ffind = File();
+      }
+    }
+
+    void operator++() {
+      if(_find)
+        _ffind = _find.openNextFile();
+      if (!mounted_ || (!(_ffind)) ) {
+        find_clsno = 0x0fffffff;
+      }
+    }
+    operator bool() { return find_clsno != 0x0fffffff; }
+    bool isdir() {  if(_ffind) return _ffind.isDirectory(); 
+                    if(_find)return _find.isDirectory(); 
+                    return false; 
+                 }
+
+    const char* name() { 
+                  //if(!_find)return NULL;
+                  if(_ffind) return _ffind.name(); 
+                  if(_find) return _find.name(); 
+                  return nullptr; 
+                  }
+
+    size_t size() { 
+                  if(_ffind) return _ffind.size(); 
+                  if(_find)return _find.size(); 
+                  return 0; 
+                  }
+  #ifdef OSX_ENABLE_MTP
+	char attr() {
+            // return _find.attr;
+            char attr = 0; 
+            if(isdir()) attr = 0x10;
+            else attr = 0x20;
+            return attr;
+        }
+  #endif
+    
+  private:
+    char _path[128];
+    File _find;
+    File _ffind;
+    uint32_t find_clsno;
+  };
+private:
+  static bool mounted_;
+  static char _correctedPath[128];
+  static uint32_t openTime;
+};
+
+bool LSFS::mounted_ = false;
+char LSFS::_correctedPath[128];
+uint32_t LSFS::openTime = 0;
+
+
+#endif // PROFFIE_TEST 
 
 #endif

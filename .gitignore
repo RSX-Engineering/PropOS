@@ -1,3 +1,7 @@
 .git_*
 .vscode
 .build
+.pio
+.output
+debug.cfg
+debug.svd

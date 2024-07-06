@@ -17,15 +17,13 @@ public:
   int calculate(BladeBase* blade) { return value_; }
 protected:
   void init(int argnum) {
-    char default_value[16];
-    itoa(value_, default_value, 10);
-#ifndef OSx 
-    const char* arg = CurrentArgParser->GetArg(argnum, "INT", default_value);
-    if (arg) {
-      value_ = strtol(arg, NULL, 0);
-    }
-#endif // OSx 
-
+    // NO ARGUMENT PARSING - USE DEFAULT
+    // char default_value[16];
+    // itoa(value_, default_value, 10);
+    // const char* arg;// = CurrentArgParser->GetArg(argnum, "INT", default_value);
+    // if (arg) {
+    //   value_ = strtol(arg, NULL, 0);
+    // }
   }
   
   int value_;

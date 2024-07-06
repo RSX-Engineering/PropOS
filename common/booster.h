@@ -3,7 +3,7 @@
 
 #include "battery_monitor.h"
 
-#if (VERSION_MAJOR >= 4 && !defined(ULTRA_PROFFIE)) || (defined(ULTRA_PROFFIE) && PF_BOOSTER == 1)
+#if defined(PROFFIEBOARD) || defined(ULTRAPROFFIE_BOOSTER) 
 
 // Turns off booster when we don't need it anymore.
 // class Booster : Looper, StateMachine, CommandParser 
@@ -59,7 +59,7 @@ protected:
       for (i_ = 0; i_ < 10 && !Active(); i_++)
 	SLEEP(100);
       if (Active()) continue;
-      #if (defined(OSx) && defined(DIAGNOSE_AUDIO)) || !defined(OSx)  
+      #if defined(DIAGNOSE_AUDIO)
       STDOUT.println("Booster off.");
       #endif
       // digitalWrite(boosterPin, LOW); // turn the booster off
@@ -87,7 +87,7 @@ protected:
   }
 
   void Help() {
-    #if defined(COMMANDS_HELP) || !defined(OSx)
+    #if defined(COMMANDS_HELP) 
     STDOUT.println(" booster on/off - turn booster on or off");
     #endif
   }
@@ -105,7 +105,7 @@ Booster booster;
 inline void EnableBooster() {
   booster.Enable();
 }
-#ifdef ULTRA_PROFFIE
+#ifdef ULTRAPROFFIE
 void SilentEnableBooster(bool on) {
   // if(on)
   //       digitalWrite(boosterPin, HIGH);
@@ -116,9 +116,6 @@ void SilentEnableBooster(bool on) {
 
 #else
   inline void EnableBooster() { }
-  // #ifdef ULTRA_PROFFIE
-  // void SilentEnableBooster(bool on) { }
-  // #endif // end ULTRA_PROFFIE
-#endif   // V4
+#endif  
 
 #endif

@@ -21,16 +21,16 @@ public:
   void Play(const char* filename) {
     MountSDCard();
     EnableAmplifier();
-    pause_ = true;
+    pause_.set(true);
     clear();
     wav.Play(filename);
     SetStream(&wav);
     scheduleFillBuffer();
-    pause_ = false;
+    pause_.set(false);
   }
 
   bool PlayInCurrentDir(const char* name) {
-    #if (defined(OSx) && defined(X_STATUS_REPORT_AUDIO)) || !defined(OSx)
+    #if defined(X_STATUS_REPORT_AUDIO)
     STDOUT << "Playing " << name << ", ";
     #endif
     for (const char* dir = current_directory; dir; dir = next_current_directory(dir)) {
@@ -48,7 +48,7 @@ public:
     STDOUT << "(not found)\n";
     return false;
   }
-#ifdef OSx 
+
   bool PlayInDir(const char* dir, const char* shortName, const char* ext) {
     PathHelper full_name(dir, shortName, ext);
     if (shortName) {  
@@ -111,64 +111,56 @@ public:
 };
 
     RepeatTask* repeater;
-#endif // OSx
+
 
   void UpdateSaberBaseSoundInfo() {
     SaberBase::sound_length = length();
     SaberBase::sound_number = current_file_id().GetFileNum();
   }
 
-  void PlayOnce(Effect* effect, float start = 0.0) 
-  #ifdef OSx
-    override    // need to call this from volume_overlay
-  #endif
-  {
-    MountSDCard();
+  void PlayOnce(Effect::FileID fileid, float start = 0.0) {  
+    const Effect* effect = fileid.GetEffect();    
+	MountSDCard();
     EnableAmplifier();
     set_volume_now(volume_target() * effect->GetVolume() / 100);
-    #ifndef OSx
-    STDOUT << "unit = " << WhatUnit(this) << " vol = " << volume() << ", ";
-    #endif
-    pause_ = true;
+    // STDOUT << "unit = " << WhatUnit(this) << " vol = " << volume() << ", ";
+    pause_.set(true);
     clear();
     ResetStopWhenZero();
-    wav.PlayOnce(effect, start);
+    wav.PlayOnce(fileid, start);
     SetStream(&wav);
     // Fill up the buffer, if possible.
     while (!wav.eof() && space_available()) {
       scheduleFillBuffer();
     }
-    pause_ = false;
+    pause_.set(false);
     if (SaberBase::sound_length == 0.0 && effect->GetFollowing() != effect) {
       UpdateSaberBaseSoundInfo();
     }
   }
-  
+  void PlayOnce(Effect* effect, float start = 0.0) override    // need to call this from volume_overlay
+  {
+    PlayOnce(effect->RandomFile(), start);
+  }
 
   void Stop() override {
     // STDOUT.println("[BufferedWavPlayer.Stop]");
-    pause_ = true;
+    pause_.set(true);
     wav.Stop();
     wav.Close();
     clear();
-    // PlayNext(0);
-    #ifdef OSx
-      PlayNext(0);
-      repeatingEff = 0;   // signal nothing is repeating
-    #endif
+    PlayNext(0);
+    repeatingEff = 0;   // signal nothing is repeating
   }
 
-  #ifndef OSx
-  void PlayLoop(Effect* effect) { wav.PlayLoop(effect); }
-  #else // OSx
-  void PlayNext(Effect* effect) { wav.PlayNext(effect); }   // PlayLoop without the misleading name
+
+  void PlayNext(Effect* effect)  { wav.PlayNext(effect); }   // PlayLoop without the misleading name
   void QuickStop() { // For asynchronous replay...
-    pause_ = true;
+    pause_.set(true);
     wav.Stop();
   }
   void ResetWav() override { wav.Reset();  }
   
-  #endif
 
 
   void CloseFiles() override { wav.Close(); }
@@ -181,40 +173,29 @@ public:
     return wav.current_file_id();
   }
   
-#ifndef OSx
-  bool isPlaying() const {
-    return !pause_ && (wav.isPlaying() || buffered());
-  }
-
-  BufferedWavPlayer() {
-    SetStream(&wav);
-  }
-#else // OSx
   bool isPlaying() const {
     if (repeatingEff) return true;    // keep active if repeating
-    return !pause_ && (wav.isPlaying() || buffered());
+    return !pause_.get() && (wav.isPlaying() || buffered());
   }
 
-  BufferedWavPlayer() : VolumeOverlay() { SetStream(&wav);  }
+  BufferedWavPlayer() : VolumeOverlay(),  pause_(true) { SetStream(&wav);  }
   
-
-#endif // OSx
 
   
   // This makes a paused player report very little available space, which
   // means that it will be low priority for reading.
-  size_t space_available() const override {
+  size_t space_available() override {
     size_t ret = VolumeOverlay<BufferedAudioStream<AUDIO_BUFFER_SIZE_BYTES>>::space_available();
-    if (pause_ && ret) ret = 2; // still slightly higher than FromFileStyle<>
+    if (pause_.get() && ret) ret = 2; // still slightly higher than FromFileStyle<>
     return ret;
   }
 
   int read(int16_t* dest, int to_read) override {
-    if (pause_) return 0;
+    if (pause_.get()) return 0;
     return VolumeOverlay<BufferedAudioStream<AUDIO_BUFFER_SIZE_BYTES> >::read(dest, to_read);
   }
   bool eof() const override {
-    if (pause_) return true;
+    if (pause_.get()) return true;
     return VolumeOverlay<BufferedAudioStream<AUDIO_BUFFER_SIZE_BYTES> >::eof();
   }
 
@@ -234,14 +215,14 @@ public:
   uint32_t refs() const { return refs_; }
 
   void dump() {
-    STDOUT << " pause=" << pause_
+    STDOUT << " pause=" << pause_.get()
 	   << " buffered=" << buffered()
 	   << " wav.isPlaying()=" << wav.isPlaying()
 	   << "\n";
     wav.dump();
   }
 
-  #ifdef OSx
+
     void Repeat(uint16_t msm1) { wav.SetRepeat(msm1); }
 
 // soundID: -1 = random, 0 = same as before, >=1 = sound #'soundID'
@@ -261,7 +242,7 @@ bool PlayEffect(Effect* soundEffect, int soundID=-1, uint16_t repeat=0, float vo
     }
 
     // 3. Play sound at least once
-    if (!pause_ && (wav.isPlaying() || buffered())) Stop(); // Stop whatever is playing 
+    if (!pause_.get() && (wav.isPlaying() || buffered())) Stop(); // Stop whatever is playing 
     if (soundID>=1) soundEffect->Select(soundID-1);   // count from 1
     if (soundID==-1) soundEffect->Select(-1);         // random
     if (volume==0) reset_volume();     // restore volume, might have faded out previously
@@ -320,8 +301,8 @@ bool PlayEffect(Effect* soundEffect, int soundID=-1, uint16_t repeat=0, float vo
     if (*(wav.longRepeat)) { // currently on long repeat 
         if (milli == 1 || milli == soundDuration) {
             // STDOUT.println("long -> loop");
-            wav.effect_ = repeatingEff;
-            wav.effect_->SetFollowing(repeatingEff);
+            wav.effect_.set(repeatingEff);
+            wav.effect_.get()->SetFollowing(repeatingEff);
             *(wav.longRepeat) = false ;    // stop RepeatTask
             // repeater->Stop();
         }
@@ -342,8 +323,8 @@ bool PlayEffect(Effect* soundEffect, int soundID=-1, uint16_t repeat=0, float vo
         else if (milli > soundDuration) {
             // STDOUT.println("short -> long");
             wav.shortRepeatTime = 0;    // stop short
-            wav.effect_->SetFollowing(0);
-            wav.effect_ = 0;            // prevent looping 
+            wav.effect_.get()->SetFollowing(0);
+            wav.effect_.set(nullptr);            // prevent looping 
             if (!repeater) repeater = new RepeatTask();
             else repeater->Stop();
             repeater->Set(this, repeatingEff, milli);
@@ -378,6 +359,7 @@ bool PlayEffect(Effect* soundEffect, int soundID=-1, uint16_t repeat=0, float vo
     noInterrupts();
     if (repeater) repeater->Stop();
     wav.shortRepeatTime = 0;
+    if(repeater)
     *(wav.longRepeat) = false;
     wav.PlayNext(0);  
     repeatingEff = 0;  
@@ -391,14 +373,14 @@ bool PlayEffect(Effect* soundEffect, int soundID=-1, uint16_t repeat=0, float vo
   private:
   Effect* repeatingEff;
 
-  #endif
+  
 
 
 private:
   uint32_t refs_ = 0;
 
   PlayWav wav;
-  volatile bool pause_;
+  POAtomic<bool> pause_;
 };
 
 

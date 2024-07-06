@@ -2,15 +2,11 @@
 #define MOTION_LSM6DS3H_H
 
 // Supports LSM6DS3, LSM6DSM and LSM6DSO
-#if defined(ULTRA_PROFFIE) && defined(OSx)
+#ifdef ULTRAPROFFIE
   // Subscribes to power domain CPU but does not request power, will stay alive as long as the CPU is alive
-  class LSM6DS3H : public I2CDevice, Looper, StateMachine, xPowerSubscriber {
+  class LSM6DS3H : public I2CDevice, Looper, StateMachine, PowerSubscriber {
   public:
-    LSM6DS3H() : I2CDevice(106), Looper(
-  #ifndef PROFFIEBOARD
-      HFLINK
-  #endif    
-    ), xPowerSubscriber(pwr4_CPU) {enabled = true;}
+    LSM6DS3H() : I2CDevice(106), Looper(), PowerSubscriber(pwr4_CPU) {enabled = true;}
     
     bool enabled;
     void PwrOn_Callback() override { 
@@ -35,15 +31,11 @@
       i2cbus.scheduledDeinitTime(2000);  // restore timeout 
     }         
 
-#else // nULTRA_PROFFIE
+#else 
   class LSM6DS3H : public I2CDevice, Looper, StateMachine {
   public:
-    LSM6DS3H() : I2CDevice(106), Looper(
-  #ifndef PROFFIEBOARD
-      HFLINK
-  #endif    
-    ) {}
-#endif // ULTRA_PROFFIE
+    LSM6DS3H() : I2CDevice(106), Looper() {}
+#endif
 
 
 
@@ -161,7 +153,7 @@
       first_motion_ = true;
       first_accel_ = true;
 
-      #if (defined(OSx) && defined(DIAGNOSE_SENSOR)) || !defined(OSx)
+      #if defined(DIAGNOSE_SENSOR)
       STDOUT.print("Motion chip ... ");    
       #endif
 
@@ -169,15 +161,15 @@
 
       I2C_READ_BYTES_ASYNC(WHO_AM_I, databuffer, 1);
       id_ = databuffer[0];
-      #if (defined(OSx) && defined(DIAGNOSE_SENSOR)) || !defined(OSx)    
+      #if defined(DIAGNOSE_SENSOR)
       STDOUT.print(id_);
       #endif
       if (id_  == 105 || id_ == 106 || id_ == 108) {
-        #if (defined(OSx) && defined(DIAGNOSE_SENSOR)) || !defined(OSx)    
+        #if defined(DIAGNOSE_SENSOR)
         STDOUT.println(" found.");
         #endif
       } else  {
-        #if (defined(OSx) && defined(DIAGNOSE_SENSOR)) || !defined(OSx)  
+        #if defined(DIAGNOSE_SENSOR)
         STDOUT.println(" not found.");
         #endif
 	      goto i2c_timeout;
@@ -199,30 +191,26 @@
       I2CUnlock();
 
       last_event_ = millis();
-#ifdef PROFFIEBOARD      
-  stm32l4_exti_notify(&stm32l4_exti, g_APinDescription[motionSensorInterruptPin].pin,
-  EXTI_CONTROL_RISING_EDGE, &LSM6DS3H::irq, this);
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture 
+  attachInterrupt(digitalPinToInterrupt(motionSensorInterruptPin), motion_irq, RISING);
 
-  #if defined(ULTRA_PROFFIE) && defined(OSx) 
+  #ifdef ULTRAPROFFIE
       while (enabled) {
-  #else // nULTRA_PROFFIE
+  #else 
       while (SaberBase::MotionRequested()) {
-  #endif // ULTRA_PROFFIE      
+  #endif
         Poll();
         if ((last_event_ + I2C_TIMEOUT_MILLIS * 2 - millis()) >> 31) {
-          TRACE(MOTION, "timeout");
-          #if (defined(OSx) && defined(DIAGNOSE_SENSOR)) || !defined(OSx)  
+          #if defined(DIAGNOSE_SENSOR)
           STDOUT.println("Motion timeout.");
           #endif
-          stm32l4_exti_notify(&stm32l4_exti, g_APinDescription[motionSensorInterruptPin].pin,
-                  EXTI_CONTROL_DISABLE, &LSM6DS3H::do_nothing, nullptr);
+          detachInterrupt(digitalPinToInterrupt(motionSensorInterruptPin));
           goto i2c_timeout;
   	    }
 	    YIELD();
     }
+    detachInterrupt(digitalPinToInterrupt(motionSensorInterruptPin));
 
-      stm32l4_exti_notify(&stm32l4_exti, g_APinDescription[motionSensorInterruptPin].pin,
-			  EXTI_CONTROL_DISABLE, &LSM6DS3H::do_nothing, nullptr);
 #else  // nPROFFIEBOARD
       while (true) {
 	YIELD();
@@ -263,28 +251,28 @@
         I2CUnlock();
       }
 
-#endif // PROFFIEBOARD
+#endif // Architecture
 
-      #if (defined(OSx) && defined(DIAGNOSE_SENSOR)) || !defined(OSx)        
+      #if defined(DIAGNOSE_SENSOR)
       STDOUT.print("Disabling motion...");
       #endif
       I2CLOCK();
       I2C_WRITE_BYTE_ASYNC(CTRL2_G, 0x0);  // accel disable
       I2C_WRITE_BYTE_ASYNC(CTRL1_XL, 0x0);  // gyro disable
       I2CUnlock();
-      #if (defined(OSx) && defined(DIAGNOSE_SENSOR)) || !defined(OSx)        
+      #if defined(DIAGNOSE_SENSOR)
       STDOUT.println(" done!");
       #endif
 
-      #if defined(ULTRA_PROFFIE) && defined(OSx)
+      #ifdef ULTRAPROFFIE
         while (!enabled) YIELD();
-      #else // nULTRA_PROFFIE
+      #else 
         while (!SaberBase::MotionRequested()) YIELD();
-      #endif // ULTRA_PROFFIE
+      #endif 
       continue;
 
     i2c_timeout:
-      #if (defined(OSx) && defined(DIAGNOSE_SENSOR)) || !defined(OSx)  
+      #if defined(DIAGNOSE_SENSOR)
       STDOUT.println("Motion chip timeout, trying auto-reboot of motion chip!");
       #endif
       while (!I2CLock(true)) YIELD();
@@ -309,14 +297,9 @@
 	   << "\n";
   }
 
-#ifdef PROFFIEBOARD  
-  static void irq(void* context) { ((LSM6DS3H*)context)->Poll(); }
-  static void do_nothing(void* context) {}
-
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
   void Poll() {
-    //    TRACE(MOTION, "Poll");
     if (!digitalRead(motionSensorInterruptPin)) {
-      TRACE(MOTION, "nothing pending1");
       return;
     }
     I2CLockAndRun();
@@ -324,14 +307,11 @@
 
   void RunLocked() override {
     ScopedCycleCounter cc(motion_interrupt_cycles);
-    TRACE(MOTION, "RunLocked");
     // All chunks are full
     if (!digitalRead(motionSensorInterruptPin)) {
-      TRACE(MOTION, "nothing pending2");
       goto fail;
     }
     if (!stm32l4_i2c_notify(Wire._i2c, &LSM6DS3H::DataReceived, this, (I2C_EVENT_ADDRESS_NACK | I2C_EVENT_DATA_NACK | I2C_EVENT_ARBITRATION_LOST | I2C_EVENT_BUS_ERROR | I2C_EVENT_OVERRUN | I2C_EVENT_RECEIVE_DONE | I2C_EVENT_TRANSMIT_DONE | I2C_EVENT_TRANSFER_DONE | I2C_EVENT_TRANSMIT_ERROR))) {
-      TRACE(MOTION, "notify fail");
       goto fail;
     }
 
@@ -340,10 +320,8 @@
 			      Wire._tx_data, 1,
 			      databuffer, 12,
 			      0)) {
-      TRACE(MOTION, "transfer fail");
       goto fail;
     }
-    TRACE(MOTION, "transferring...");
     return;
   fail:
     I2CUnlock();
@@ -354,7 +332,6 @@
     ((LSM6DS3H*)context)->DataReceived2();
   }
   void DataReceived2() {
-    TRACE(MOTION, "Transfer done");
     stm32l4_i2c_notify(Wire._i2c, nullptr, 0, 0);
     I2CUnlock();
     // accel data available
@@ -371,7 +348,7 @@
     last_event_ = millis();
     Poll();
   }
-#endif // PROFFIEBOARD
+#endif // Architecture
 
   uint8_t databuffer[12];
   volatile uint32_t last_event_;

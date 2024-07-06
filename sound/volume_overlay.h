@@ -11,8 +11,7 @@ const uint32_t kDefaultSpeed = 500 * kMaxVolume / AUDIO_RATE;
 template<class T>
 class VolumeOverlay : public T {
 public:
-  
-  VolumeOverlay() : volume_(kMaxVolume / 100) {
+  VolumeOverlay() : volume_(kMaxVolume / 100), stop_when_zero_(false) {
     volume_.set(kDefaultVolume);
     volume_.set_target(kDefaultVolume);
     volume_.set_speed(kDefaultSpeed);
@@ -20,37 +19,9 @@ public:
 
 
 
-  #ifndef OSx
-  int read(int16_t* data, int elements) override {
-    SCOPED_PROFILER();
-    elements = T::read(data, elements);
-    if (volume_.isConstant()) {
-      int32_t mult = volume_.value();
-      if (mult == kMaxVolume) {
-        // Do nothing
-      } else if (mult == 0) {
-        if (stop_when_zero_) {
-	  volume_.set_speed(kDefaultSpeed);
-	  T::Stop();
-        }
-        for (int i = 0; i < elements; i++) data[i] = 0;
-      } else {
-        for (int i = 0; i < elements; i++) {
-          data[i] = clamptoi16((data[i] * mult) >> kVolumeShift);
-        }
-      }
-    } else {
-      for (int i = 0; i < elements; i++) {
-        int32_t v = (data[i] * (int32_t)volume_.value()) >> kVolumeShift;
-        data[i] = clamptoi16(v);
-        volume_.advance();
-      }
-    }
-    return elements;
-  }
-  #else // OSx
+
    int read(int16_t* data, int elements) override {
-    SCOPED_PROFILER();
+    
     elements = T::read(data, elements);
     if (volume_.isConstant()) {
       int32_t mult = volume_.value();
@@ -58,8 +29,8 @@ public:
         // Do nothing
       } 
       else if (mult == 0) {   // volume at 0
-        if (stop_when_zero_) {
-          stop_when_zero_ = false;
+        if (stop_when_zero_.get()) {
+          stop_when_zero_.set(false);
           volume_.set_speed(kDefaultSpeed);
           T::Stop();    // stop stream
           Stop();     // stop player 
@@ -92,7 +63,7 @@ public:
     return elements;
   }
 
-  #endif // OSx
+  
 
  
 
@@ -112,7 +83,7 @@ public:
   void reset_volume() {
     set_volume_now((int)kDefaultVolume);
     volume_.set_speed(kDefaultSpeed);
-    stop_when_zero_ = false;
+    stop_when_zero_.set(false);
   }
   void set_volume(float vol) {
     set_volume((int)(kDefaultVolume * vol));
@@ -135,10 +106,9 @@ public:
 
   void FadeAndStop() {
     volume_.set_target(0);
-    stop_when_zero_ = true;
+    stop_when_zero_.set(true);
   }
 
-#ifdef OSx
   private:
     // bool restart_when_zero_ = false;
     Effect* restart_when_zero_ = 0;     // effect to start when current one fades out
@@ -157,15 +127,15 @@ public:
 
   virtual void PlayOnce(Effect* effect, float start = 0.0) {}
 
-#endif // OSx
+
 
   void ResetStopWhenZero() {
-    stop_when_zero_ = false;
+    stop_when_zero_.set(false);
   }
 
 private:
-  volatile bool stop_when_zero_ = false;
   ClickAvoiderLin volume_;
+  POAtomic<bool> stop_when_zero_;
 };
 
 #endif

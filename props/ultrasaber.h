@@ -27,7 +27,6 @@ Enter/Exit Color Change - 1 button saber = Hold button and Twist.
 #ifndef PROPS_ULTRASABER_H
 #define PROPS_ULTRASABER_H
 
-#if defined(OSx) && !defined(OLDINSTALL) && !defined(OLDPROFILE)
 
 #include "prop_base.h"
 
@@ -36,7 +35,7 @@ Enter/Exit Color Change - 1 button saber = Hold button and Twist.
 #endif 
 #define PROP_TYPE Ultrasaber
 
-#include "xUltraMenus.h"
+#include "ultrasaber_menu.h"
 
 // #define AUTOOFF_TIMEOUT 121000
 #define AUTOOFF_TIMEOUT installConfig.APOtime
@@ -571,27 +570,10 @@ public:
     #endif
     
         PropBase::Loop();   // run the prop loop     
-        #ifdef ULTRA_PROFFIE
+        #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
           if (menu) RequestPower();
         #endif
 
-    // #if defined(ULTRA_PROFFIE) && defined(OSx) && defined(X_POWER_MAN)
-    //     if(!IsOn()) // if saber is turned off  
-    //     {
-    //       if(millis() - lastRecordedEvent < 1000 || menu) // request motion and power to make sure acc is active 
-    //       {
-    //         SaberBase::RequestMotion();
-    //       }
-    //       if(SaberBase::MotionRequested())   // try to detect twist move only if acc is running 
-    //       {
-    //         DetectTwist();
-  	// 	      DetectShake();              // run shake detection 
-    //         Detect2Tap(accResultant);               // run double-tap detection 
-    //       }
-    //     } 
-    //     else {  // saber is on  
-    //     //   requestPower();   // always request power to make sure stop modde condition will be not achieved 
-    // #endif 
           SaberBase::RequestMotion(); // request motion 
 		      Detect2Tap(accResultant);               // run double-tap detection 
           DetectTwist();              // run twist detection  
@@ -625,10 +607,7 @@ public:
               lastRecordedEvent = millis();
             }            
           }
-
-        // #if defined(ULTRA_PROFFIE) && defined(OSx) && defined(X_POWER_MAN)  
-        // }
-        // #endif   
+ 
         if (PlayerDestroyer()) {    // just ended a sound and freed the prop player
             if(restoreSettingsLOWBAT) {  // restore volume after a failed attempt to power on; LowBat sound just ended.
               restoreSettingsLOWBAT = false;    // set by CheckCanStart
@@ -636,7 +615,7 @@ public:
               if (stealthMode) userProfile.masterVolume = userProfile.stealthVolume;  // restore volume according to stealth mode
               else userProfile.masterVolume = userProfile.combatVolume;
               dynamic_mixer.set_volume(VOLUME);
-              #ifdef ULTRA_PROFFIE
+              #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
               SilentEnableAmplifier(false);      
               SilentEnableBooster(false);
               #endif
@@ -666,7 +645,7 @@ public:
     userProfile.masterVolume = 8000;    // set low volume to announce low battery
     dynamic_mixer.set_volume(VOLUME);
     restoreSettingsLOWBAT = true;
-    #ifdef ULTRA_PROFFIE
+    #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
     SilentEnableAmplifier(true);      
     SilentEnableBooster(true);
     #endif
@@ -729,7 +708,7 @@ public:
 uint16_t targetVol, targetBr;   // target volume and brightness, for sweep signalling of stealth modes
 void SetStealth(bool newStealthMode, uint8_t announce = ANNOUNCE_STEALTH) override {
     if (announce) {   // announce: play special sound and sweep volume and brightness to new values
-        #ifdef ULTRA_PROFFIE
+        #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
         SilentEnableAmplifier(true);  // ... just in case it was previously muted...
         SilentEnableBooster(true);
         #endif    
@@ -780,7 +759,7 @@ void SetStealth(bool newStealthMode, uint8_t announce = ANNOUNCE_STEALTH) overri
         userProfile.masterBrightness = userProfile.combatBrightness;
       }
       // STDOUT.print("[SetStealth] Volume = "); STDOUT.print(userProfile.masterVolume); STDOUT.print(", brightness ="); STDOUT.println(userProfile.masterBrightness);          
-      #ifdef ULTRA_PROFFIE
+      #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
       if (!userProfile.masterVolume) { // mute
         SilentEnableAmplifier(false);         
         SilentEnableBooster(false);  
@@ -843,7 +822,7 @@ void StealthLoop(bool startNow = false) {
       lastTimeServiced = 0;   // stop sweeping if reached all targets
       STDOUT.print("Sweeping volume to "); STDOUT.print(targetVol); 
       STDOUT.print(" and brightness to "); STDOUT.println(targetBr); 
-	    #ifdef ULTRA_PROFFIE 
+	    #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
         if (!userProfile.masterVolume) { // mute
           SilentEnableAmplifier(false);         
           SilentEnableBooster(false);  
@@ -1035,7 +1014,7 @@ void MenuChangerDestroyer(MenuPreActions *mPreActions)
               STDOUT.print("Sensitivity = "); STDOUT.print(Sensitivity::master); STDOUT.print(", setting volume to "); STDOUT.print(userProfile.masterVolume); 
               STDOUT.print(" and brightness to "); STDOUT.println(userProfile.masterBrightness);      
               dynamic_mixer.set_volume(VOLUME);
-              #ifdef ULTRA_PROFFIE 
+              #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
               if (userProfile.masterVolume<=MIN_MASTER_VOLUME) {
                 SilentEnableAmplifier(false);      
                 SilentEnableBooster(false);
@@ -1108,7 +1087,7 @@ void MenuChangerDestroyer(MenuPreActions *mPreActions)
   int8_t CreateMenuNavigator()
   { 
     if(!menu) { // create navigator only if there is none active 
-      menu = new xMenu<uint16_t>(); 
+      menu = new TTMenu<uint16_t>(); 
       if(!menu) return -1; 
       return 1;
     }
@@ -1121,7 +1100,7 @@ void MenuChangerDestroyer(MenuPreActions *mPreActions)
   *             0 - menu actions already exists   
   *             1 - actions created succesfully 
   */
-  int8_t CreateMenuActions(xUltraMenu type, uint16_t nrseg)
+  int8_t CreateMenuActions(UltrasaberMenu type, uint16_t nrseg)
   {
       if(!myMenuActions) {
         switch(type) {
@@ -1155,7 +1134,7 @@ void MenuChangerDestroyer(MenuPreActions *mPreActions)
   *   @param  : void 
   *   @retval : void 
   */
-  bool CreateUltraMenu(xUltraMenu menuType, bool rolls, uint16_t minT, uint16_t maxT, uint16_t initialValue)
+  bool CreateUltraMenu(UltrasaberMenu menuType, bool rolls, uint16_t minT, uint16_t maxT, uint16_t initialValue)
   {   
       int8_t result;
       result = CreateMenuNavigator();
@@ -1179,8 +1158,8 @@ void MenuChangerDestroyer(MenuPreActions *mPreActions)
         return false;
       }
       // try to link the created actions to the navigator 
-      xMenu<uint16_t>::xMenuActions *myActions;
-      myActions = dynamic_cast<xMenu<uint16_t>::xMenuActions *>(myMenuActions);
+      TTMenu<uint16_t>::xMenuActions *myActions;
+      myActions = dynamic_cast<TTMenu<uint16_t>::xMenuActions *>(myMenuActions);
       if(!myActions) {
         STDOUT.println(" Fail setting actions ");
         DestroyMenu();
@@ -1270,8 +1249,6 @@ private:
     // bool stealthMode = false, setStealth = false;
     // uint16_t stealthOLDBrightness , stealthOLDVolume;
 };
-#else // end of OSx 
- #error ULTRASABER PROP SUPPORTED ONLY ON OSX 
-#endif //end of else OSx 
+
 
 #endif

@@ -41,27 +41,16 @@ public:
     for (int i = 0; i < num_leds; i++) {
       RetType c = getColor2(i);
       if (ROTATE) c.c = c.c.rotate(rotation);
-      #if defined(OSx) && !defined(OLDPROFILE)
-          // scale with masterBrightness [0, 65535]
-          uint32_t tmp = c.c.r * userProfile.masterBrightness;
-          c.c.r = tmp >> 16;
-          tmp = c.c.g * userProfile.masterBrightness;
-          c.c.g = tmp >> 16;
-          tmp = c.c.b * userProfile.masterBrightness;
-          c.c.b = tmp >> 16;
-      #endif // OSx
-
-      if (c.getOverdrive()) {
-         blade->set_overdrive(i, c.c);
-      } else {
-#ifdef DYNAMIC_BLADE_DIMMING
-	c.c.r = clampi32((c.c.r * SaberBase::GetCurrentDimming()) >> 14, 0, 65535);
-	c.c.g = clampi32((c.c.g * SaberBase::GetCurrentDimming()) >> 14, 0, 65535);
-	c.c.b = clampi32((c.c.b * SaberBase::GetCurrentDimming()) >> 14, 0, 65535);
-#endif
-	blade->set(i, c.c);
-      }
-      if (!(i & 0xf)) Looper::DoHFLoop();
+      // scale with masterBrightness [0, 65535]
+      uint32_t tmp = c.c.r * userProfile.masterBrightness;
+      c.c.r = tmp >> 16;
+      tmp = c.c.g * userProfile.masterBrightness;
+      c.c.g = tmp >> 16;
+      tmp = c.c.b * userProfile.masterBrightness;
+      c.c.b = tmp >> 16;
+      // Apply color
+      if (c.getOverdrive()) blade->set_overdrive(i, c.c);
+      else  blade->set(i, c.c);      
     }
   }
 
@@ -76,6 +65,8 @@ public:
     }
   }
 };
+
+#include "get_arg_max.h"
 
 template<class T>
 class Style : public StyleHelper<decltype(T().getColor(0))> {
@@ -93,9 +84,45 @@ public:
       blade->allow_disable();
     this->runloop(blade);
   }
+
+  int get_max_arg(int argument) override {
+#define GET_ARG_MAX_HELPER(ARG) if (GetArgMax<T, ARG>::value != -1) if (argument == ARG) return GetArgMax<T, ARG>::value
+#define GET_ARG_MAX_HELPER2(ARG)		\
+    GET_ARG_MAX_HELPER(ARG);			\
+    GET_ARG_MAX_HELPER(ARG+1);			\
+    GET_ARG_MAX_HELPER(ARG+2);			\
+    GET_ARG_MAX_HELPER(ARG+3);			\
+    GET_ARG_MAX_HELPER(ARG+4);			\
+    GET_ARG_MAX_HELPER(ARG+5);			\
+    GET_ARG_MAX_HELPER(ARG+6);			\
+    GET_ARG_MAX_HELPER(ARG+7);			\
+    GET_ARG_MAX_HELPER(ARG+8);			\
+    GET_ARG_MAX_HELPER(ARG+9);
+
+    GET_ARG_MAX_HELPER(0);
+    GET_ARG_MAX_HELPER(10);
+    GET_ARG_MAX_HELPER(20);
+    GET_ARG_MAX_HELPER(30);
+    GET_ARG_MAX_HELPER(40);
+    GET_ARG_MAX_HELPER(50);
+    GET_ARG_MAX_HELPER(60);
+    GET_ARG_MAX_HELPER(70);
+    GET_ARG_MAX_HELPER(80);
+    GET_ARG_MAX_HELPER(90);
+
+    return -1;
+  }
+
 private:
   T base_;
   HandledTypeSaver handled_type_saver_;
+};
+
+template<class T>
+class ChargingStyle : public Style<T> {
+public:
+  bool NoOnOff() override { return true; }
+  bool Charging() override { return true; }
 };
 
 // Get a pointer to class.
@@ -105,5 +132,34 @@ StyleAllocator StylePtr() {
   return &factory;
 };
 
+class StyleFactoryWithDefault : public StyleFactory {
+public:
+  StyleFactoryWithDefault(StyleFactory* allocator,
+			  const char* default_arguments) :
+    allocator_(allocator), default_arguments_(default_arguments) {
+  }
+  BladeStyle* make() override {
+    DefaultArgumentParserWrapper dapw(CurrentArgParser, default_arguments_);
+    CurrentArgParser = &dapw;
+    BladeStyle* ret = allocator_->make();
+    CurrentArgParser = dapw.argParser_;
+    return ret;
+  }
+  
+  StyleFactory* allocator_;
+  const char* default_arguments_;
+};
 
+template<class STYLE>
+StyleAllocator StylePtr(const char* default_arguments) {
+  return new StyleFactoryWithDefault(StylePtr<STYLE>(), default_arguments);
+}
+
+// Same as StylePtr, but makes the style a "charging" style, which means
+// that you can't turn it on/off, and the battery low warning is disabled.
+template<class STYLE>
+StyleAllocator ChargingStylePtr() {
+  static StyleFactoryImpl<ChargingStyle<STYLE> > factory;
+  return &factory;
+}
 #endif

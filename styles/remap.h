@@ -1,11 +1,13 @@
 #ifndef STYLES_REMAP_H
 #define STYLES_REMAP_H
 
-// Remap, remap LED positions
+
 // Usage: Remap<F,COLOR>
 // F: FUNCTION - the remapping function
 // COLOR: COLOR - color values to remap
 // Returns: COLOR
+
+// Remap LED positions
 // F is a function which returns values between 0 and 32768
 // For each pixel, we'll call F and read the corresponding
 // location COLOR, with interpolation.
@@ -27,7 +29,8 @@ class Remap {
     return RunLayer(&color_, blade);
   }
   
-  auto getColor(int led) -> decltype(color_.getColor(led)) {
+  auto getColor(int led) -> decltype(MixColors(color_.getColor(led),
+					       color_.getColor(led), 1, 15)) {
     int pos = f_.getInteger(led);
     led = clamp(pos * num_leds_, 0, num_leds_ * 32768 - 1);
     int fraction = led & 0x7fff;

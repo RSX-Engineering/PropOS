@@ -1,16 +1,16 @@
 #ifndef FWUPD_H
 #define FWUPD_H
 
-    #if defined(ULTRA_PROFFIE) 
+    #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
         #if HWL_CONCAT(MQUOATE, HW_PREFIX, MQUOATE) == 'L'
         #define UPDATE_FILE "_osx_/osx.cod"
 
         #include "stm32l4_fwupg.h"
-        #include "xCodReader.h"     // make sure that code reader is included 
+        #include "CodReader.h"     // make sure that code reader is included 
 
         bool __attribute__((optimize("O0"))) CheckFwUpdate()
         {
-            xCodReader reader;
+            CodReader reader;
             struct {
                 uint16_t version;       // 
                 uint8_t force;          // 

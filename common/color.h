@@ -554,13 +554,13 @@ DISAMBIGUATE_MIXCOLORS1(SimpleColor, RGBA_um_nod, RGBA_nod)
 // Paint over operators
 // There is probably a better way to do this.
 inline SimpleColor operator<<(const SimpleColor& base, const RGBA_um_nod& over) {
-  SCOPED_PROFILER();
+  
   if (!over.alpha) return base;
   return SimpleColor((base.c * (32768 - over.alpha) + over.c * over.alpha) >> 15);
 }
 
 inline OverDriveColor operator<<(const OverDriveColor& base, const RGBA_um& over) {
-  SCOPED_PROFILER();
+  
   if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return OverDriveColor((base.c * ac + over.c * over.alpha) >> 15,
@@ -568,13 +568,13 @@ inline OverDriveColor operator<<(const OverDriveColor& base, const RGBA_um& over
 }
 
 inline SimpleColor operator<<(const SimpleColor& base, const RGBA_nod& over) {
-  SCOPED_PROFILER();
+  
   if (!over.alpha) return base;
   return (base.c * (32768 - over.alpha) >> 15) + over.c;
 }
 
 inline OverDriveColor operator<<(const OverDriveColor& base, const RGBA& over) {
-  SCOPED_PROFILER();
+  
   if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return OverDriveColor((base.c * ac >> 15) + over.c,
@@ -582,7 +582,7 @@ inline OverDriveColor operator<<(const OverDriveColor& base, const RGBA& over) {
 }
 
 inline RGBA_nod operator<<(const RGBA_um_nod& base, const RGBA_um_nod& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA_nod((base.c * (base.alpha * ac >> 15) + over.c * over.alpha) >> 15,
@@ -590,7 +590,7 @@ inline RGBA_nod operator<<(const RGBA_um_nod& base, const RGBA_um_nod& over) {
 }
 
 inline RGBA operator<<(const RGBA_um& base, const RGBA_um& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA((base.c * (base.alpha * ac >> 15) + over.c * over.alpha) >> 15,
@@ -599,7 +599,7 @@ inline RGBA operator<<(const RGBA_um& base, const RGBA_um& over) {
 }
 
 inline RGBA_nod operator<<(const RGBA_um_nod& base, const RGBA_nod& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA_nod((base.c * (base.alpha * ac >> 15) >> 15) + over.c,
@@ -607,7 +607,7 @@ inline RGBA_nod operator<<(const RGBA_um_nod& base, const RGBA_nod& over) {
 }
 
 inline RGBA operator<<(const RGBA_um& base, const RGBA& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA((base.c * (base.alpha * ac >> 15) >> 15) + over.c,
@@ -616,7 +616,7 @@ inline RGBA operator<<(const RGBA_um& base, const RGBA& over) {
 }
 
 inline RGBA_nod operator<<(const RGBA_nod& base, const RGBA_um_nod& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA_nod((base.c * ac + over.c * over.alpha) >> 15,
@@ -624,7 +624,7 @@ inline RGBA_nod operator<<(const RGBA_nod& base, const RGBA_um_nod& over) {
 }
 
 inline RGBA operator<<(const RGBA& base, const RGBA_um& over) {
-  SCOPED_PROFILER();
+  
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA((base.c * ac + over.c * over.alpha) >> 15,
@@ -633,7 +633,7 @@ inline RGBA operator<<(const RGBA& base, const RGBA_um& over) {
 }
 
 inline RGBA_nod operator<<(const RGBA_nod& base, const RGBA_nod& over) {
-    SCOPED_PROFILER();
+    
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA_nod((base.c * ac >> 15) + over.c,
@@ -641,7 +641,7 @@ inline RGBA_nod operator<<(const RGBA_nod& base, const RGBA_nod& over) {
 }
 
 inline RGBA operator<<(const RGBA& base, const RGBA& over) {
-    SCOPED_PROFILER();
+    
 //  if (!over.alpha) return base;
   uint16_t ac = 32768 - over.alpha;
   return RGBA((base.c * ac >> 15) + over.c,

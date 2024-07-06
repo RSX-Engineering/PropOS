@@ -6,9 +6,7 @@
 #include "audiostream.h"
 
 
-#ifdef OSx
-  #define PlayLoop(x) PlayNext(x)   // "loop" = "continuously repeated"
-#endif
+#define PlayLoop(x) PlayNext(x)   // "loop" = "continuously repeated"
 
 
 // Simple upsampler code, doubles the number of samples with
@@ -78,59 +76,44 @@ class PlayWav : StateMachine, public ProffieOSAudioStream {
 public:
 
   friend class BufferedWavPlayer;
-
+  PlayWav() : run_(false), effect_(nullptr), sample_bytes_(0) {}
 
   void Play(const char* filename) {
     if (!*filename) return;
     strcpy(filename_, filename);
     new_file_id_ = Effect::FileID();
-    run_ = true;
+    run_.set(true);
   }
 
   const char* Filename() const {
     return filename_;
   }
 
-  void PlayOnce(Effect* effect, float start = 0.0) {
-    sample_bytes_ = 0;
-    new_file_id_ = effect->RandomFile();
+  void PlayOnce(const Effect::FileID& file_id, float start = 0.0) {
+    sample_bytes_.set(0);
+    new_file_id_ = file_id;
     if (new_file_id_) {
       new_file_id_.GetName(filename_);
       start_ = start;
-      effect_ = nullptr;
-      run_ = true;
+      effect_.set(nullptr);
+      run_.set(true);
     }
-    PlayLoop(effect->GetFollowing());   // effect_ = effect->GetFollowing(); shouldn't be here...
+     PlayLoop(file_id.GetEffect()->GetFollowing());
 
   }
 
-#ifndef OSx
-  void PlayLoop(Effect* effect) {  
-    effect_ = effect;
-  }
-
-  void Stop() override {
-    noInterrupts();
-    run_ = false;
-    state_machine_.reset_state_machine();
-    effect_ = nullptr;
-    written_ = num_samples_ = 0;
-    interrupts();
-  }
-#else // OSx
   
-
-  void ClearEffect() { effect_ = 0; }
+  void ClearEffect() { effect_.set(nullptr); }
 
   void PlayNext(Effect* effect) {   
-    effect_ = effect;
+    effect_.set(effect);
   }
   
 
   // Reset reader but leave the repeating info untouched
   void Reset() {
     noInterrupts();
-    run_ = false;
+    run_.set(false);
     state_machine_.reset_state_machine();
     written_ = num_samples_ = 0;
     interrupts();
@@ -138,7 +121,7 @@ public:
   }
   void Stop() override {
     noInterrupts();
-    effect_ = nullptr;
+    effect_.set(nullptr);
     shortRepeatTime = 0;
     if (longRepeat) *longRepeat = false;
     longRepeat = 0;
@@ -152,37 +135,37 @@ public:
   bool SetRepeat(uint16_t msm1) {
     // Stop repeat
     // STDOUT.print("[SetRepeat] effect_ = "); STDOUT.print((uint32_t)effect_); STDOUT.print(", len [ms] = "); STDOUT.println((uint16_t)(1000*length()));
-    if (msm1 && !effect_) {
+    if (msm1 && !effect_.get()) {
         // STDOUT.println("[PlayWav.SetRepeat] Cannot repeat, effect not assigned");
         return false;     
     }
-    effect_->SetFollowing(0);   // nothing follows
+    effect_.get()->SetFollowing(0);   // nothing follows
     shortRepeatTime = 0;
     lastRepeatTime = millis();    
-    *longRepeat = false;
+    if (longRepeat)*longRepeat = false;
     // repeating = msm1;
     if (msm1) {  
       if (msm1 == 1) { // loop at sound's duration
-        effect_->SetFollowing(effect_); 
+        effect_.get()->SetFollowing(effect_.get()); 
       }
       else { // repeat at fixed period
         uint32_t soundLen = 1000*length();
         // STDOUT.println(1000*length());
         if (msm1-1 < soundLen) { // short repeat (before sound end, by loop)
-            effect_->SetFollowing(effect_); 
+            effect_.get()->SetFollowing(effect_.get()); 
             shortRepeatTime = msm1-1;  
         }
         else if (msm1-1 == soundLen) { // loop
-          effect_->SetFollowing(effect_); 
+          effect_.get()->SetFollowing(effect_.get()); 
         }
         else { // long repeat (by RepeatTask)
-          *longRepeat = true;  // this starts the RepeatTask, since longRepeat points to its .running
-          effect_ = 0;         // unassign effect to prevent looping
+          if (longRepeat)*longRepeat = true;  // this starts the RepeatTask, since longRepeat points to its .running
+          effect_.set(nullptr);         // unassign effect to prevent looping
           // repeater->Start(msm1-1);
         }    
       }
     } 
-    else effect_ = 0;   // prevent double play
+    else effect_.set(nullptr);   // prevent double play
 
     return true;
   }
@@ -191,17 +174,17 @@ public:
   uint8_t GetRepeat() {
     if (*longRepeat) return 3;    
     if (shortRepeatTime) return 1;
-    if (effect_)
-      if (effect_ == effect_->GetFollowing()) return 2;   
+    if (effect_.get())
+      if (effect_.get() == effect_.get()->GetFollowing()) return 2;   
     return 0;
   }
   
-#endif // OSx
+
 
 
 
   bool isPlaying() const {
-    return run_;
+    return run_.get();
   }
 
 private:
@@ -229,8 +212,8 @@ private:
     len_ = 0;
     to_read_ = 0;
     ptr_ = end_;
-    run_ = false;
-    effect_ = nullptr;
+    run_.set(false);
+    effect_.set(nullptr);
   }
 
   template<int bits, int channels, int rate>
@@ -287,42 +270,14 @@ private:
   }
 
   int ReadFile(int n) {
-    SCOPED_PROFILER();
+    
     return file_.Read(buffer + 8, n);
   }
 
   void loop() {
-  #ifndef OSx
-        STATE_MACHINE_BEGIN();
-      while (true) {
-        while (!run_ && !effect_) YIELD();
-        if (!run_) {
-        // #ifndef OSx
-          new_file_id_ = old_file_id_.GetFollowing(effect_);
-          if (!new_file_id_) goto fail;
-          new_file_id_.GetName(filename_);
-          run_ = true;
-    effect_ = effect_->GetFollowing();
-        }
-        if (new_file_id_ && new_file_id_ == old_file_id_) {
-          // Minor optimization: If we're reading the same file
-          // as before, then seek to 0 instead of open/close file.
-          file_.Rewind();
-        } else {
-    if (!file_.OpenFast(filename_)) {
-      default_output->print("File ");
-      default_output->print(filename_);
-      default_output->println(" not found.");
-      goto fail;
-    }
-    YIELD();
-     old_file_id_ = new_file_id_;
-      }
-
-  #else // OSx
 
     // auto-repeat at fixed intervals 'shortRepeatTime' [ms], if smaller than file duration. If longer, state machine will stop so repeating is handled by PlayWavLooper
-    if (effect_ && shortRepeatTime && !(*longRepeat)) {
+    if (effect_.get() && shortRepeatTime && !(*longRepeat)) {
       uint32_t timeNow = millis();
       if (timeNow - lastRepeatTime >= shortRepeatTime) {
         file_.Rewind();   // start over
@@ -332,20 +287,20 @@ private:
     }
     STATE_MACHINE_BEGIN();
     while (true) {
-      while (!run_ && !effect_) YIELD();      
+      while (!run_.get() && !effect_.get()) YIELD();      
 
       // if (!shortRepeatTime) { 
-        if (!run_) {  
-          new_file_id_ = old_file_id_.GetFollowing(effect_);  // Random()
+        if (!run_.get()) {  
+          new_file_id_ = old_file_id_.GetFollowing(effect_.get());  // Random()
           if (!new_file_id_) goto fail;
           new_file_id_.GetName(filename_);
-          run_ = true;
-          effect_ = effect_->GetFollowing();
+          run_.set(true);
+          effect_.set(effect_.get()->GetFollowing());
         }
         if (new_file_id_ && new_file_id_ == old_file_id_) file_.Rewind();
         else {
           if (!file_.OpenFast(filename_)) {
-            #if defined(DIAGNOSE_AUDIO) || !defined(OSx)
+            #if defined(DIAGNOSE_AUDIO) 
               default_output->print("File ");            
               default_output->print(filename_);
               default_output->println(" not found.");
@@ -357,19 +312,19 @@ private:
           old_file_id_ = new_file_id_;
         }
       // }
-  #endif // OSx
+  
 
 
       wav_ = endswith(".wav", filename_);
       if (wav_) {
         if (ReadFile(12) != 12) {
-          #if defined(DIAGNOSE_AUDIO) || !defined(OSx)
+          #if defined(DIAGNOSE_AUDIO)
             default_output->println("Failed to read 12 bytes.");
           #endif
           goto fail;
         }
         if (header(0) != 0x46464952 || header(2) != 0x45564157) {
-          #if defined(DIAGNOSE_AUDIO) || !defined(OSx)
+          #if defined(DIAGNOSE_AUDIO) 
             default_output->println("Not RIFF WAVE.");
           #endif
           YIELD();
@@ -379,7 +334,7 @@ private:
         // Look for FMT header.
         while (true) {
           if (ReadFile(8) != 8) {
-            #if defined(DIAGNOSE_AUDIO) || !defined(OSx)
+            #if defined(DIAGNOSE_AUDIO) 
               default_output->println("Failed to read 8 bytes.");
             #endif
             goto fail;
@@ -391,7 +346,7 @@ private:
             continue;
           }
           if (len_ < 16) {
-            #if defined(DIAGNOSE_AUDIO) || !defined(OSx)
+            #if defined(DIAGNOSE_AUDIO) 
               default_output->println("FMT header is wrong size..");
             #endif
             goto fail;
@@ -400,14 +355,14 @@ private:
         }
         
         if (16 != ReadFile(16)) {
-          #if defined(DIAGNOSE_AUDIO) || !defined(OSx)
+          #if defined(DIAGNOSE_AUDIO) 
             default_output->println("Read failed.");
           #endif
           goto fail;
         }
         if (len_ > 16) file_.Skip(len_ - 16);
         if ((header(0) & 0xffff) != 1) {
-          #if defined(DIAGNOSE_AUDIO) || !defined(OSx)
+          #if defined(DIAGNOSE_AUDIO) 
             default_output->println("Wrong format.");
           #endif
           goto fail;
@@ -420,14 +375,7 @@ private:
          rate_ = 44100;
          bits_ = 16;
       }
-      #ifndef OSx  
-        STDOUT.print("channels: ");   // regular print from ISR... nice one!
-        STDOUT.print(channels_);
-        STDOUT.print(" rate: ");
-        STDOUT.print(rate_);
-        STDOUT.print(" bits: ");
-        STDOUT.println(bits_);
-      #endif
+
       ptr_ = buffer + 8;
       end_ = buffer + 8;
       
@@ -443,13 +391,13 @@ private:
           if (file_.Tell() >= file_.FileSize()) break;
           len_ = file_.FileSize() - file_.Tell();
         }
-        sample_bytes_ = len_;
-        #ifdef OSx
-            if (delayedRepeat) {
-                SetRepeat(delayedRepeat);   // set repeat now, it was delayed for not knowing length
-                delayedRepeat = 0;
-            }
-        #endif
+        sample_bytes_.set(len_);
+
+        if (delayedRepeat) {
+            SetRepeat(delayedRepeat);   // set repeat now, it was delayed for not knowing length
+            delayedRepeat = 0;
+        }
+
         if (start_ != 0.0) {
           int samples = Fmod(start_, length()) * rate_;
           int bytes_to_skip = samples * channels_ * bits_ / 8;
@@ -492,11 +440,11 @@ private:
       }
 
       // EOF;
-      run_ = false;
+      run_.set(false);
       continue;
 
   fail:
-      run_ = false;
+      run_.set(false);
       YIELD();
     }
 
@@ -508,7 +456,7 @@ private:
 public:
   // Called from interrupt handler.
   int read(int16_t* dest, int to_read) override {
-    SCOPED_PROFILER();
+    
     dest_ = dest;
     to_read_ = to_read;
     loop();
@@ -516,18 +464,18 @@ public:
   }
 
   bool eof() const override {
-    return !run_;
+    return !run_.get();
   }
 
   // Length, seconds.
   float length() const {
-    return (float)(sample_bytes_) * 8 / (bits_ * rate_ * channels_);
+    return (float)(sample_bytes_.get()) * 8 / (bits_ * rate_ * channels_);
   }
 
   // Current position, seconds.
   float pos() const {
     if (!isPlaying()) return 0.0;
-    return (float)(sample_bytes_ - len_ + end_ - ptr_) * 8 / (bits_ * rate_);
+    return (float)(sample_bytes_.get() - len_ + end_ - ptr_) * 8 / (bits_ * rate_);
   }
 
   void Close() {
@@ -544,7 +492,7 @@ public:
   }
 
   void dump() {
-    STDOUT << " run=" << run_
+    STDOUT << " run=" << run_.get()
 	   << " filename=" << filename()
 	   << " pos=" << pos()
 	   << " len=" << length()
@@ -552,14 +500,8 @@ public:
   }
 
 private:
-  volatile bool run_ = false;
-#ifndef OSx
-  Effect* volatile effect_ = nullptr;
-#else
- public:
-  Effect* volatile effect_ = nullptr;   
- private:  
-#endif
+  POAtomic<bool> run_;
+  POAtomic<Effect*> effect_;
   // If we're playing from an Effect, this file ID is the file we're actually playing.
   Effect::FileID new_file_id_;
   Effect::FileID old_file_id_;
@@ -577,7 +519,7 @@ private:
   FileReader file_;
 
   size_t len_ = 0;
-  volatile size_t sample_bytes_ = 0;
+  POAtomic<size_t> sample_bytes_;
   unsigned char* ptr_;
   unsigned char* end_;
   unsigned char buffer[512 + 8]  __attribute__((aligned(4)));
@@ -590,14 +532,14 @@ private:
   int num_samples_ = 0;
   int16_t samples_[32];
 
-  #ifdef OSx
+
 // private:
     uint16_t switchwavs_state;    // state machine's state which swithces wiches
     uint32_t shortRepeatTime;          // auto-repeat period [ms]
     uint32_t lastRepeatTime;          // millis() when repeated last time
     bool* longRepeat;              // pointer to .running of the RepeatTask assigned
     uint16_t delayedRepeat;
-  #endif // OSx
+
 
 };
 

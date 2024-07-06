@@ -7,6 +7,7 @@
 // Usage: EffectPulse<EFFECT>
 // EFFECT: BladeEffectType
 // Returns 32768 once for each time the given effect occurs.
+
 template<BladeEffectType EFFECT>
 class EffectPulseSVF {
 public:
@@ -21,6 +22,29 @@ private:
 template<BladeEffectType EFFECT>
 using EffectPulseF = SingleValueAdapter<EffectPulseSVF<EFFECT>>;
 
+// Usage: LockupPulseF<LOCKUP_TYPE>
+// LOCKUP_TYPE: a SaberBase::LockupType
+// Returns 32768 once for each time the given lockup occurs.
+
+template<SaberBase::LockupType LOCKUP_TYPE>
+class LockupPulseSVF {
+public:
+  LockupPulseSVF() {
+    BladeBase::HandleFeature(FeatureForLockupType(LOCKUP_TYPE));
+  }
+  void run(BladeBase* blade) {}
+  int calculate(BladeBase* blade) {
+    if (SaberBase::Lockup() == LOCKUP_TYPE) {
+      return 32768;
+    } else {
+      return 0;
+    }
+  }
+};
+
+template<SaberBase::LockupType LOCKUP_TYPE>
+using LockupPulseF = SingleValueAdapter<LockupPulseSVF<LOCKUP_TYPE>>;
+
 // Usage: IncrementWithReset<PULSE, RESET_PULSE, MAX, I>
 // PULSE: FUNCTION (pulse type) 
 // RESET_PULSEE: FUNCTION (pulse type) defaults to Int<0> (no reset)
@@ -28,6 +52,7 @@ using EffectPulseF = SingleValueAdapter<EffectPulseSVF<EFFECT>>;
 // Starts at zero, increments by I each time the PULSE occurse.
 // If it reaches MAX it stays there.
 // Resets back to zero when RESET_PULSE occurs.
+
 template<class PULSE, class RESET_PULSE=Int<0>, class MAX = Int<32768>, class I = Int<1>>
 class IncrementWithResetSVF {
 public:
@@ -66,6 +91,7 @@ class SingleValueAdapter<IncrementWithResetSVF<PULSE, RESET_PULSE, MAX, I>> : pu
 // If adding I exceeds MAX, the function returns 0 + any remainder in excesss of MAX 
 // I, MAX = numbers
 // return value: INTEGER
+
 template<BladeEffectType EFFECT, class MAX = Int<32768>, class I = Int<1>>
 using EffectIncrementF = IncrementModuloF<EffectPulseF<EFFECT>, MAX, I>;
 

@@ -3,7 +3,11 @@
 
 #ifdef ENABLE_AUDIO
 
+#ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+#include "dac_os.h"
+#else
 #include "dac.h"
+#endif
 
 #ifdef AUDIO_CONTROL_SGTL5000
 #include <control_sgtl5000.h>
@@ -46,15 +50,6 @@ public:
     if (!on_) {
       on_ = true;
       EnableBooster();
-      // pinMode(amplifierPin, OUTPUT);
-      // digitalWrite(amplifierPin, HIGH);
-      // delay(10); // Give it a little time to wake up.
-      // #ifdef ULTRA_PROFFIE
-      //    stm32l4_gpio_pin_configure(GPIO_PIN_PB2, GPIO_MODE_OUTPUT | GPIO_OTYPE_PUSHPULL | GPIO_OSPEED_LOW | GPIO_PUPD_PULLDOWN);
-      // //   digitalWrite(16, LOW);
-      // //   delay(500); // Give it a little time to wake up.
-      // #endif
-      // // delay(10); // Give it a little time to wake up.
     }
 #endif    
   }
@@ -82,28 +77,17 @@ protected:
       SLEEP(50);
       
       if (Active()) continue;
-      #if (defined(OSx) && defined(DIAGNOSE_AUDIO)) || !defined(OSx)  
+      #if defined(DIAGNOSE_AUDIO)
       STDOUT.println("Amplifier off.");
       #endif
-      on_ = false;
-      // digitalWrite(amplifierPin, LOW); // turn the amplifier off
-#ifdef AUDIO_CONTROL_SGTL5000
-      // Disable does nothing, so this is pointless.
-      // sgtl5000_1.volume(0.0);
-      // sgtl5000_1.disable();
-      // sgtl5000_enabled = false;
-#else
-  // #ifndef ULTRA_PROFFIE
-  //     pinMode(amplifierPin, INPUT_ANALOG); // Let the pull-down do the work
-  // #else 
-  //     digitalWrite(amplifierPin, LOW); // turn the amplifier off
-  //     // TODO DELEte
-  //     //stm32l4_gpio_pin_configure(GPIO_PIN_PB2, GPIO_MODE_ANALOG | GPIO_OTYPE_PUSHPULL | GPIO_OSPEED_LOW | GPIO_PUPD_PULLDOWN);  // GPIO_MODE_OUTPUT
-  // #endif
-#endif      
+      on_ = false;     
       SLEEP(20);
       if (on_) continue;
+      #ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+      dac_OS.end();
+      #else 
       dac.end();
+      #endif
       while (!Active()) YIELD();
     }
     STATE_MACHINE_END();
@@ -116,17 +100,7 @@ protected:
 	Enable();
         return true;
       }
-      if (!strcmp(arg, "off")) {
-#ifdef AUDIO_CONTROL_SGTL5000
-	sgtl5000_1.volume(0.0);
-	sgtl5000_1.disable();
-#else
-  // #ifndef ULTRA_PROFFIE
-  //     pinMode(amplifierPin, INPUT_ANALOG); // Let the pull-down do the work
-  // #else 
-  //     digitalWrite(amplifierPin, LOW); // turn the amplifier off
-  // #endif
-#endif      
+      if (!strcmp(arg, "off")) {     
         return true;
       }
     }
@@ -159,7 +133,7 @@ protected:
   }
 
   void Help() {
-    #if defined(COMMANDS_HELP) || !defined(OSx)
+    #if defined(COMMANDS_HELP) 
     STDOUT.println(" amp on/off - turn amplifier on or off");
     #endif
   }
@@ -175,10 +149,13 @@ Amplifier amplifier;
   // amplifier.Enable();
 //   dynamic_mixer.RequestPower();
 // }
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
 bool AmplifierIsActive() {
   return amplifier.Active();
 }
-#ifdef ULTRA_PROFFIE
+#endif
+
+#if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
 void SilentEnableAmplifier(bool on) {
   // if(on)
   //       digitalWrite(amplifierPin, HIGH); // turn the amplifier off
@@ -187,10 +164,16 @@ void SilentEnableAmplifier(bool on) {
 }
 #endif
 
+#ifdef PROFFIEBOARD
+void EnableAmplifier() {
+  amplifier.Enable();
+}
+#endif
+
 #else // ENABLE_AUDIO
 void EnableAmplifier() { }
 bool AmplifierIsActive() { return false; }
-#ifdef ULTRA_PROFFIE
+#if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
 void SilentEnableAmplifier(bool on) { }
 #endif
 

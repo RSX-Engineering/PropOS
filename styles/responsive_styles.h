@@ -5,64 +5,74 @@
 // Responsive Effects use BladeAngle and TwistAngle to control effects.
 // Defaults are set to simplify implementation.
 
-// All of these styles are layers, use Layers<COLOR, ....> if you need on opaque color.
+// All of these styles are layers, use Layers<COLOR, ....> if you need an opaque color.
 
-// ResponsiveLockupL<LOCKUP COLOR, TRANSITION1, TRANSITION2, TOP, BOTTOM, SIZE>
+// Usage: ResponsiveLockupL<LOCKUP COLOR, TRANSITION1, TRANSITION2, TOP, BOTTOM, SIZE>
 // Implements LocalizedLockup that will move based on the angle of the blade
 // TRANSITION1 & TRANSITION2 = transition Begin & End
 // TOP = uppermost lockup position limit, BOTTOM = lowermost lockup position limit, 32768 = tip, 0 = hilt
 // SIZE controls LOCKUP area size 0 ~ 32768
+
 template<class COLOR,
          class TR1 = TrInstant,
          class TR2 = TrInstant,
          class TOP = Scale<BladeAngle<0,16000>,Int<4000>,Int<26000>>,
          class BOTTOM = Int<6000>,
-         class SIZE = Scale<SwingSpeed<100>,Int<9000>,Int<14000>>>
+         class SIZE = Scale<SwingSpeed<100>,Int<9000>,Int<14000>>,
+         class CONDITION = Int<1>>
 using ResponsiveLockupL =
   LockupTrL<AlphaL<COLOR, Bump<Scale<BladeAngle<>,TOP,BOTTOM>,SIZE>>,
             TR1,
             TR2,
-            SaberBase::LOCKUP_NORMAL>;
+            SaberBase::LOCKUP_NORMAL,
+            CONDITION>;
 
-// ResponsiveDragL<DRAG COLOR, TRANSTION1, TRANSITION2, SIZE1, SIZE2>
+// Usage: ResponsiveDragL<DRAG COLOR, TRANSTION1, TRANSITION2, SIZE1, SIZE2>
 // Implements Drag that will increase or decrease in size based on turning hilt
 // TRANSITION1 & TRANSITION2 = transition Begin & End
 // SIZE1 & SIZE2 control limits for DRAG size with TwistAngle
 // LOCATION controls SmoothStep location
+
 template<class COLOR,
          class TR1 = TrInstant,
          class TR2 = TrInstant,
          class SIZE1 = Int<2000>,
          class SIZE2 = Int<10000>,
-         class LOCATION = Int<32000>>
+         class LOCATION = Int<32000>,
+         class CONDITION = Int<1>>
 using ResponsiveDragL =
   LockupTrL<AlphaL<COLOR, SmoothStep<LOCATION,Scale<TwistAngle<>,SIZE1,SIZE2>>>,
             TR1,
             TR2,
-            SaberBase::LOCKUP_DRAG>;
+            SaberBase::LOCKUP_DRAG,
+            CONDITION>;
 
-// ResponsiveMeltL<MELT COLOR, TRANSITION1, TRANSITION2, SIZE1, SIZE2>
+// Usage: ResponsiveMeltL<MELT COLOR, TRANSITION1, TRANSITION2, SIZE1, SIZE2>
 // Implements Melt effect for cutting through object, size will change to mimic metal
 // heating and intensity will increase or decrease based on turning hilt
 // TRANSITION1 & TRANSITION2 = transition Begin & End
 // SIZE1 & SIZE2 control MELT area limits for TwistAngle
 // LOCATION control SmoothStep location
+
 template<class COLOR = Mix<TwistAngle<>,OrangeRed,Red>,
          class TR1 = TrWipeIn<600>,
          class TR2 = TrWipe<600>,
          class SIZE1 = Int<4000>,
          class SIZE2 = Int<10000>,
-         class LOCATION = Int<30000>>
+         class LOCATION = Int<30000>,
+         class CONDITION = Int<1>>
 using ResponsiveMeltL =
   LockupTrL<AlphaL<COLOR, SmoothStep<LOCATION,Scale<TwistAngle<>,SIZE1,SIZE2>>>,
             TR1,
             TR2,
-            SaberBase::LOCKUP_MELT>;
+            SaberBase::LOCKUP_MELT,
+            CONDITION>;
 
-// ResponsiveLightningBlockL<LIGHTNING BLOCK COLOR, TRANSITION1, TRANSITION2>
+// Usage: ResponsiveLightningBlockL<LIGHTNING BLOCK COLOR, TRANSITION1, TRANSITION2>
 // Implements hybrid Force Lightning Block with animation, intensity responds to turning the hilt and location/focus will respond to blade angle
 // TRANSITION1 & TRANSITION2 = transition Begin & End
-template<class COLOR, class TR1 = TrInstant, class TR2 = TrInstant>
+
+template<class COLOR, class TR1 = TrInstant, class TR2 = TrInstant, class CONDITION = Int<1>>
 using ResponsiveLightningBlockL =
   LockupTrL<
     AlphaL<COLOR,
@@ -75,13 +85,15 @@ using ResponsiveLightningBlockL =
                   Scale<IsLessThan<SlowNoise<Int<2000>>,Int<12000>>,Scale<NoisySoundLevel,Scale<TwistAngle<>,Int<9000>,Int<5000>>,Int<0>>,Int<0>>>>>,
     TR1,
     TR2,
-    SaberBase::LOCKUP_LIGHTNING_BLOCK>;
+    SaberBase::LOCKUP_LIGHTNING_BLOCK,
+    CONDITION>;
 
-// ResponsiveClashL<CLASH COLOR, TRANSITION1, TRANSITION2, TOP, BOTTOM, SIZE>
+// Usage: ResponsiveClashL<CLASH COLOR, TRANSITION1, TRANSITION2, TOP, BOTTOM, SIZE>
 // Implements LocalizedClash effect that mimics ResponsiveLockup location and size
 // TRANSITION1 & TRANSITION2 = transition Begin & End
 // TOP = uppermost Clash position limit, BOTTOM = lowermost Clash position limit, 32768 = tip, 0 = hilt
 // SIZE controls Clash area size 0 ~ 32768
+
 template<class COLOR,
          class TR1 = TrInstant,
          class TR2 = TrFade<200>,
@@ -94,7 +106,7 @@ using ResponsiveClashL =
                              TR2>,
                     EFFECT_CLASH>;
 
-// ResponsiveBlastL<BLAST COLOR, FADEOUT_MS, WAVE_SIZE, WAVE_SPEED, TOP, BOTTOM, EFFECT>
+// Usage: ResponsiveBlastL<BLAST COLOR, FADEOUT_MS, WAVE_SIZE, WAVE_SPEED, TOP, BOTTOM, EFFECT>
 // Implements Blast effect that will move based on angle of the blade instead of random location Blast will impact and disperse along the blade from original position
 // FADE = fade time ms
 // WAVE_SIZE = size
@@ -116,7 +128,7 @@ using ResponsiveBlastL =
              EFFECT>,
          Bump<Scale<BladeAngle<>,TOP,BOTTOM>,Int<24000>>>;
 
-// ResponsiveBlastWaveL<BLAST COLOR, FADEOUT_MS, WAVE_SIZE, WAVE_SPEED, TOP, BOTTOM, EFFECT>
+// Usage: ResponsiveBlastWaveL<BLAST COLOR, FADEOUT_MS, WAVE_SIZE, WAVE_SPEED, TOP, BOTTOM, EFFECT>
 // Implements Blast effect that will move based on angle of the blade instead of random location Blast will impact and split up and down the length of the blade from original position
 // FADE = fade time ms
 // WAVE_SIZE = size
@@ -139,7 +151,7 @@ using ResponsiveBlastWaveL =
                     BOTTOM>>,
          EFFECT>;
 
-// ResponsiveBlastFadeL<BLAST COLOR, SIZE, FADE, TOP, BOTTOM, EFFECT>
+// Usage: ResponsiveBlastFadeL<BLAST COLOR, SIZE, FADE, TOP, BOTTOM, EFFECT>
 // Implements Blast effect that will move based on angle of the blade instead of random location Blast will impact and Fade in position
 // SIZE controls blast size bump 0 ~ 32768
 // FADE = fade time ms
@@ -159,12 +171,13 @@ using ResponsiveBlastFadeL =
                   TrFadeX<FADE>>,
          EFFECT>;
 
-// ResponsiveStabL<STAB COLOR, TRANSITION1, TRANSITION2, SIZE1, SIZE2>
+// Usage: ResponsiveStabL<STAB COLOR, TRANSITION1, TRANSITION2, SIZE1, SIZE2>
 // Stab effect
 // Implements Stab effect that will change in size based on angle of the blade
 // TRANSITION1 & TRANSITION2 = transition Begin & End
 // SIZE1 & SIZE2 control Stab area limits for BladeAngle, 0 ~ 32768
 // LOCATION control SmoothStep location
+
 template<class COLOR,
          class TR1 = TrWipeIn<600>,
          class TR2 = TrWipe<600>,

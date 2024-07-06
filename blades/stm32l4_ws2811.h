@@ -16,7 +16,7 @@ class WS2811Client {
 public:
   virtual void done_callback() = 0;
   virtual int chunk_size() = 0;
-  virtual int pin() = 0;
+  virtual int pin() const = 0;
   virtual int frequency() = 0;
   virtual int num_leds() = 0;
   virtual void read(uint8_t* dest) = 0;
@@ -50,7 +50,13 @@ public:
 
 volatile bool ws2811_dma_done = true;
 
-#ifndef ULTRA_PROFFIE 
+class NoInterruptScope {
+public:
+  NoInterruptScope() { noInterrupts(); }
+  ~NoInterruptScope() { interrupts(); }
+};
+
+#ifdef PROFFIEBOARD
   class WS2811EngineSTM32L4 : public WS2811Engine {
   public:
     #if PROFFIEBOARD_VERSION == 3
@@ -69,18 +75,18 @@ volatile bool ws2811_dma_done = true;
     }
 
     void kick() override {
-      TRACE(BLADE, "kick");
+	   NoInterruptScope NI;
       if (!ws2811_dma_done) return;
       if (!client_) return;
+	  ws2811_dma_done = false;
       PROFFIEOS_ASSERT(color_buffer_size);
       show();
     }
 
     void queue(WS2811Client* client) override {
-      TRACE(BLADE, "queue");
       client->next_ws2811_client_ = nullptr;
       PROFFIEOS_ASSERT(color_buffer_size);
-      noInterrupts();
+       NoInterruptScope NI;
       if (!client_) {
         last_client_ = client_ = client;
       } else {
@@ -88,8 +94,7 @@ volatile bool ws2811_dma_done = true;
         PROFFIEOS_ASSERT(last_client_ != client);
         last_client_->next_ws2811_client_ = client;
         last_client_ = client;
-      }
-      interrupts();
+      }      
       kick();
     }
 
@@ -141,7 +146,7 @@ volatile bool ws2811_dma_done = true;
       // Priority is 1 step above audio, because this code freezes if we
       // miss an interrupt. If we miss an audio interrupt, we just get a small glitch.
       int irq_priority = STM32L4_SAI_IRQ_PRIORITY - 1;
-  #ifdef ULTRA_PROFFIE
+  #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
         stm32l4_timer_create(timer(), TIMER_INSTANCE_TIM15, irq_priority, 0);
         stm32l4_dma_create(&dma_, DMA_CHANNEL_DMA1_CH5_TIM15_UP, irq_priority);
         // stm32l4_timer_create(timer(), TIMER_INSTANCE_TIM16, irq_priority, 0);
@@ -255,7 +260,6 @@ volatile bool ws2811_dma_done = true;
       int pin = client->pin();
       int leds = client->num_leds();
       int frequency = client->frequency();
-      TRACE(BLADE, "show enter");
       while (!ws2811_dma_done) armv7m_core_yield();
 
       chunk_size_ = client->chunk_size();
@@ -288,7 +292,6 @@ volatile bool ws2811_dma_done = true;
       pin_ = pin;
 
       if (g_PWMInstances[instance] != WS2811_TIMER_INSTANCE) {
-        TRACE(BLADE, "proxy");
         // Proxy mode, make sure GPIO A/B doesn't fall asleep
         RCC->AHB2SMENR |= (RCC_AHB2SMENR_GPIOASMEN | RCC_AHB2SMENR_GPIOBSMEN);
         
@@ -327,26 +330,14 @@ volatile bool ws2811_dma_done = true;
         // STDOUT << data[bits -1] << "," << data[bits] << "," << data[bits+1] << "\n";
   #endif
         
-        TRACE(BLADE, "stop!");
         stm32l4_timer_stop(timer());
-        TRACE(BLADE, "cnt=0");
-        timer()->TIM->CNT = 0;
-        
+        timer()->TIM->CNT = 0;        
         // armv7m_atomic_or(&timer()->TIM->CR1, TIM_CR1_ARPE);
-        
-        TRACE(BLADE, "ch1");
         timer_channel(TIMER_CHANNEL_1, t1h);
-        TRACE(BLADE, "ch3");
         timer_channel(TIMER_CHANNEL_3, t0h);
-        
-        TRACE(BLADE, "SR");
         timer()->TIM->SR = 0;
-        
-        TRACE(BLADE, "CLR");
         armv7m_atomic_or(&timer()->TIM->DIER, TIM_DIER_UDE | TIM_DIER_CC1DE | TIM_DIER_CC3DE);
         armv7m_atomic_modify(&timer()->TIM->DIER, TIM_DIER_UDE | TIM_DIER_CC1DE | TIM_DIER_CC3DE, 0);
-        
-        TRACE(BLADE, "DMA");
         stm32l4_dma_start(&dma_, offset + (uint32_t)(&(GPIO->BSRR)),
         (uint32_t)&bit_,
         bits,
@@ -356,7 +347,6 @@ volatile bool ws2811_dma_done = true;
         DMA_OPTION_MEMORY_DATA_SIZE_8 |
         DMA_OPTION_PRIORITY_VERY_HIGH);
         if (CIRCULAR) {
-    TRACE(BLADE, "circular!");
     bits_to_send_ = bits + 1;
     stm32l4_dma_start(&dma2_, offset + (uint32_t)(&(GPIO->BRR)),
           (uint32_t)begin_,
@@ -370,7 +360,6 @@ volatile bool ws2811_dma_done = true;
           DMA_OPTION_PRIORITY_VERY_HIGH |
           DMA_OPTION_CIRCULAR);
         } else {
-    TRACE(BLADE, "linear");
     stm32l4_dma_start(&dma2_, offset + (uint32_t)(&(GPIO->BRR)),
           (uint32_t)begin_,
           bits + 1,
@@ -390,24 +379,18 @@ volatile bool ws2811_dma_done = true;
         DMA_OPTION_MEMORY_DATA_SIZE_8 |
         DMA_OPTION_PRIORITY_VERY_HIGH);
 
-        
-        TRACE(BLADE, "GPIO");
         stm32l4_gpio_pin_configure(g_APinDescription[pin].pin,
           (GPIO_PUPD_NONE | GPIO_OSPEED_HIGH | GPIO_OTYPE_PUSHPULL | GPIO_MODE_OUTPUT));
         
-        TRACE(BLADE, "TRIGGER");
         // Trigger DMA on update
         armv7m_atomic_or(&timer()->TIM->DIER, TIM_DIER_UDE | TIM_DIER_CC1DE | TIM_DIER_CC3DE);
         
-        TRACE(BLADE, "START!");
         noInterrupts();
         stm32l4_timer_start(timer(), false);
         interrupts();
-        TRACE(BLADE, "running!");
   //      timer()->TIM->EGR = TIM_EGR_UG;
         
       } else {
-        TRACE(BLADE, "timer");
         client->set01(client->get_t0h(), client->get_t1h());
         Fill(false);
         
@@ -438,7 +421,6 @@ volatile bool ws2811_dma_done = true;
         
 
         if (CIRCULAR) {
-    TRACE(BLADE, "circular!");
     stm32l4_dma_start(&dma_, (uint32_t)cmp_address,
           (uint32_t)begin_,
           bits_per_interrupt_ * 2,
@@ -452,7 +434,6 @@ volatile bool ws2811_dma_done = true;
           DMA_OPTION_CIRCULAR);
     bits_to_send_ = bits + 1;
         } else {
-    TRACE(BLADE, "linear");
     stm32l4_dma_start(&dma_, (uint32_t)cmp_address,
           (uint32_t)begin_,
           bits + 1,
@@ -475,11 +456,9 @@ volatile bool ws2811_dma_done = true;
         // Trigger DMA on update
         armv7m_atomic_or(&timer()->TIM->DIER, TIM_DIER_UDE);
       }
-      TRACE(BLADE, "show exit");
     }
     
     void DoRefill1() {
-      TRACE(BLADE, "DoRefill1");
       sent_ += bits_per_interrupt_;
       if (sent_ > bits_to_send_) {
         DoDoneCB();
@@ -488,7 +467,6 @@ volatile bool ws2811_dma_done = true;
       }
     }
     void DoRefill2() {
-      TRACE(BLADE, "DoRefill2");
       // Done callback will be called by the other dma.
       Fill(stm32l4_dma_count(&dma2_) >= (half_ - begin_));
     }
@@ -507,7 +485,6 @@ volatile bool ws2811_dma_done = true;
       ((WS2811EngineSTM32L4*)context)->DoDoneCB();
     }
     void DoDoneCB() {
-      TRACE(BLADE, "dma done enter");
       // Set the pin to low, normal output mode. This will keep the pin low even if we
       // re-use the timer for another show() call.
       digitalWrite(pin_, LOW);
@@ -530,7 +507,6 @@ volatile bool ws2811_dma_done = true;
       PROFFIEOS_ASSERT( !client_ || color_buffer_size );
       interrupts();
       armv7m_pendsv_enqueue((armv7m_pendsv_routine_t)static_kick, (void *)this, 0);
-      TRACE(BLADE, "dma done exit");
     }
 
     static void static_kick(void *context) {
@@ -573,7 +549,6 @@ volatile bool ws2811_dma_done = true;
     }
 
     void kick() override {
-      TRACE(BLADE, "kick");
       if (!ws2811_dma_done) return;
       if (!client_) return;
       PROFFIEOS_ASSERT(color_buffer_size);
@@ -581,7 +556,6 @@ volatile bool ws2811_dma_done = true;
     }
 
     void queue(WS2811Client* client) override {
-      TRACE(BLADE, "queue");
       client->next_ws2811_client_ = nullptr;
       PROFFIEOS_ASSERT(color_buffer_size);
       noInterrupts();
@@ -715,7 +689,6 @@ volatile bool ws2811_dma_done = true;
       int pin = client->pin();
       int leds = client->num_leds();
       int frequency = client->frequency();
-      TRACE(BLADE, "show enter");
       while (!ws2811_dma_done) armv7m_core_yield();
 
       chunk_size_ = client->chunk_size();
@@ -754,7 +727,6 @@ volatile bool ws2811_dma_done = true;
         return;
       
       
-        TRACE(BLADE, "timer");
         client->set01(client->get_t0h(), client->get_t1h());
         Fill(false);
         
@@ -786,7 +758,6 @@ volatile bool ws2811_dma_done = true;
         
 
         if (CIRCULAR) {
-          TRACE(BLADE, "circular!");
           stm32l4_dma_start(dmaLocalPointer, (uint32_t)cmp_address,
             (uint32_t)begin_,
             bits_per_interrupt_ * 2,
@@ -800,7 +771,6 @@ volatile bool ws2811_dma_done = true;
             DMA_OPTION_CIRCULAR);
           bits_to_send_ = bits + 1;
         } else {
-          TRACE(BLADE, "linear");
           stm32l4_dma_start(dmaLocalPointer, (uint32_t)cmp_address,
             (uint32_t)begin_,
             bits + 1,
@@ -823,11 +793,9 @@ volatile bool ws2811_dma_done = true;
         // Trigger DMA on update
         armv7m_atomic_or(&stm32l4_pwm[instance].TIM->DIER, TIM_DIER_UDE);
       
-      TRACE(BLADE, "show exit");
     }
     
     void DoRefill1() {
-      TRACE(BLADE, "DoRefill1");
       sent_ += bits_per_interrupt_;
       if (sent_ > bits_to_send_) {
         DoDoneCB();
@@ -846,7 +814,6 @@ volatile bool ws2811_dma_done = true;
       ((WS2811EngineSTM32L4*)context)->DoDoneCB();
     }
     void DoDoneCB() {
-      TRACE(BLADE, "dma done enter");
       // Set the pin to low, normal output mode. This will keep the pin low even if we
       // re-use the timer for another show() call.
       digitalWrite(pin_, LOW);
@@ -868,7 +835,6 @@ volatile bool ws2811_dma_done = true;
       PROFFIEOS_ASSERT( !client_ || color_buffer_size );
       interrupts();
       armv7m_pendsv_enqueue((armv7m_pendsv_routine_t)static_kick, (void *)this, 0);
-      TRACE(BLADE, "dma done exit");
     }
 
     static void static_kick(void *context) {
@@ -917,7 +883,7 @@ uint8_t* WS2811EngineSTM32L4::half_;
 uint8_t* WS2811EngineSTM32L4::dest_;
 stm32l4_timer_t WS2811EngineSTM32L4::timer_;
 stm32l4_dma_t WS2811EngineSTM32L4::dma_;
-#ifndef ULTRA_PROFFIE
+#ifdef PROFFIEBOARD
 stm32l4_dma_t WS2811EngineSTM32L4::dma2_;
 stm32l4_dma_t WS2811EngineSTM32L4::dma3_;
 #endif
@@ -980,9 +946,7 @@ public:
   }
 
   Color16* BeginFrame() override {
-    TRACE(BLADE, "beginframe enter");
     while (!IsReadyForBeginFrame()) armv7m_core_yield();
-    TRACE(BLADE, "exit");
 
     noInterrupts();
     Color16 *ret = color_buffer_ptr + color_buffer_size;
@@ -998,7 +962,6 @@ public:
 
   void EndFrame() override {
     armv7m_atomic_add(&color_buffer_size, num_leds_);
-    TRACE(BLADE, "endframe enter");
     if (!engine_) return;
     while (!IsReadyForEndFrame()) armv7m_core_yield();
     frame_num_++;
@@ -1008,14 +971,13 @@ public:
       engine_->queue(this);
     }
 
-    TRACE(BLADE, "exit");
   }
 
   int num_leds() const override { return num_leds_; }
   Color8::Byteorder get_byteorder() const override { return BYTEORDER; }
   void Enable(bool on) override {
 
-  #ifdef ULTRA_PROFFIE
+  #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
   stm32l4_gpio_pin_configure(g_APinDescription[pin_].pin, (GPIO_PUPD_PULLDOWN | GPIO_OSPEED_MEDIUM | GPIO_OTYPE_PUSHPULL | GPIO_MODE_OUTPUT));
       // pinMode(GPIO_PIN_PB2, on ? OUTPUT : INPUT_ANALOG);
     // if(on){
@@ -1028,7 +990,7 @@ public:
     pinMode(pin_, on ? OUTPUT : INPUT_ANALOG);
   #endif
   }
-
+  int pin() const override { return pin_; }
 
 private:
   void done_callback() override {
@@ -1045,21 +1007,8 @@ private:
     PROFFIEOS_ASSERT(color_buffer_size);
     Color16* pos = color_buffer_ptr;
     uint32_t* output = (uint32_t*) dest;
-    #ifndef ULTRA_PROFFIE
-      Color8 color = pos->dither(frame_num_, pos - color_buffer);
-    #else // ULTRA_PROFFIE
-      // Color8 color = pos->dither(frame_num_, pos - color_buffer);   // this is preposterous!
-
-      // // Proportional brightness:
-      // Color8 color;
-      // uint32_t tmp_color;
-      // tmp_color = pos->r * installedBrightness;  // 16-bit color * 16-bit brightness = 32-bit color
-      // color.r = *(((uint8_t*)&tmp_color)+3);         // Take 8 msb
-      // tmp_color = pos->g * installedBrightness;  
-      // color.g = *(((uint8_t*)&tmp_color)+3);       
-      // tmp_color = pos->b * installedBrightness;  
-      // color.b = *(((uint8_t*)&tmp_color)+3);     
-
+      // Color8 color = pos->dither(frame_num_, pos - color_buffer);   // this is preposterous!    
+      
       // Current-saturating brightness
       uint32_t energyScale = pos->r + pos->g + pos->b; // 3 * 16-bit color
       uint32_t color32;
@@ -1082,7 +1031,6 @@ private:
       }
 
 
-    #endif // OSx
 
 
 
@@ -1119,7 +1067,6 @@ private:
     return Color8::num_bytes(BYTEORDER) * 8;
   }
   
-  int pin() override { return pin_; }
   int frequency() override { return frequency_; }
   int num_leds() override { return num_leds_; }
 

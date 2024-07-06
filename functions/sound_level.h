@@ -5,6 +5,7 @@
 // Usage: SmoothSoundLevel
 // Returns 0-32768 based on sound level.
 // returned value: INTEGER
+
 class SmoothSoundLevelSVF {
  public:
   void run(BladeBase* blade) {}
@@ -18,6 +19,7 @@ using SmoothSoundLevel = SingleValueAdapter<SmoothSoundLevelSVF>;
 // Usage: NoisySoundLevel
 // Returns 0-32768 based on sound level.
 // returned value: INTEGER
+
 class NoisySoundLevelSVF {
  public:
   void run(BladeBase* blade) {}
@@ -33,6 +35,7 @@ using NoisySoundLevel = SingleValueAdapter<NoisySoundLevelSVF>;
 // This function is now used to implement the
 // AudioFlicker<> style, don't change it.
 // returned value: INTEGER
+
 class NoisySoundLevelCompatSVF {
  public:
   void run(BladeBase* blade) {}
@@ -42,6 +45,11 @@ class NoisySoundLevelCompatSVF {
 };
 
 using NoisySoundLevelCompat = SingleValueAdapter<NoisySoundLevelCompatSVF>;
+
+#else  // ENABLE_AUDIO
+
+using NoisySoundLevel = Int<0>;
+using NoisySoundLevelCompat = Int<0>;
 
 #endif  // ENABLE_AUDIO
 #endif

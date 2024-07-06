@@ -27,7 +27,6 @@ public:
     current_i2c_device = this;
     last_i2c_device = this;
     interrupts();
-    TRACE(I2C, "locked");
     return true;
   }
 
@@ -36,17 +35,14 @@ public:
     noInterrupts();
     if (current_i2c_device) {
       if (current_i2c_device == this || last_i2c_device == this || next) {
-	TRACE(I2C, "in progress");
 	interrupts();
 	return false;
       } else {
-	TRACE(I2C, "queued");
 	last_i2c_device->next = this;
 	last_i2c_device = this;
 	interrupts();
       }
     } else {
-      TRACE(I2C, "running now!");
       current_i2c_device = this;
       last_i2c_device = this;
       interrupts();
@@ -59,14 +55,12 @@ public:
     noInterrupts();
     if (current_i2c_device == this) {
       if (next) {
-	TRACE(I2C, "next");
 	current_i2c_device = next;
 	next = nullptr;
 	interrupts();
 	current_i2c_device->RunLocked();
 	return;
       } else {
-	TRACE(I2C, "free");
 	current_i2c_device = nullptr;
 	last_i2c_device = nullptr;
       }
@@ -113,7 +107,7 @@ public:
     return EndReadBytes(data, bytes);
   }
 
-#ifdef PROFFIEBOARD
+#ifdef ARDUINO_ARCH_STM32L4   // STM architecture
   // Without this define, the state machine gets mixed up with
   // inherited state machines later. No idea why that happens since
   // it is PRIVATE.

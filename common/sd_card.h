@@ -7,24 +7,26 @@
 //   #include "serial.h"
 // #endif
 
-#if defined(ENABLE_SD) && VERSION_MAJOR >= 4
+#if defined(ENABLE_SD) 
 
  #if DOSFS_SDCARD == 1 && DOSFS_SFLASH == 0
     #define STORAGE_RES "SD Card"
-  #elif DOSFS_SDCARD == 0 && DOSFS_SFLASH == 1
+ #elif DOSFS_SDCARD == 0 && DOSFS_SFLASH == 1
     #define STORAGE_RES "FLASH"
-  #endif
+ #elif defined(ARDUINO_ARCH_ESP32) // ESP architecture
+  #define STORAGE_RES "SD Card"
+ #endif
 // Unmount sdcard when we don't need it anymore.
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
-class SDCard : Looper , xPowerSubscriber {
-#else // nULTRA_PROFFIE
+#ifdef ULTRAPROFFIE
+class SDCard : Looper , PowerSubscriber {
+#else 
 class SDCard : Looper {
-#endif // ULTRA_PROFFIE
+#endif
 public:
   
-  #if defined(ULTRA_PROFFIE) && defined(OSx) 
-    SDCard() : Looper(), xPowerSubscriber(pwr4_SD) {}
+  #ifdef ULTRAPROFFIE
+    SDCard() : Looper(), PowerSubscriber(pwr4_SD) {}
   #else
     SDCard() : Looper()  {}
   #endif
@@ -32,7 +34,13 @@ public:
   const char* name() override { return STORAGE_RES; }
 
 
-  #if defined(ULTRA_PROFFIE) && defined(OSx) 
+  #ifdef ULTRAPROFFIE
+   #ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+    bool HoldPower() override {  // Return true to pause power subscriber timeout
+      return true;
+    }
+   #endif
+    
     bool Active() {
       // if (amplifier.Active() || AudioStreamWork::sd_is_locked() || AudioStreamWork::SDActive()) return true;
       if (SoundActive() || AudioStreamWork::sd_is_locked() || AudioStreamWork::SDActive()) return true;
@@ -43,7 +51,7 @@ public:
       if (SaberBase::IsOn()) return true;
       return false;
     }
-  #else // nOSx
+  #else 
     bool Active() {
     #ifdef ENABLE_AUDIO    
         if (amplifier.Active() || AudioStreamWork::sd_is_locked() || AudioStreamWork::SDActive()) {
@@ -62,12 +70,12 @@ public:
         if (t < 1000) return true;
         return false;
       }  
-  #endif // OSx
+  #endif 
 
   
 
   void Mount() {
-    #if defined(ULTRA_PROFFIE) && defined(OSx)
+    #ifdef ULTRAPROFFIE
       uint32_t mountTimeout = PWRMAN_SDMOUNTTIMEOUT;
       RequestPower(&mountTimeout);   // allow longer time for pre-loop initializations
     #endif    
@@ -77,11 +85,15 @@ public:
     // Wait for card to become available, up to 1000ms
     uint32_t start = millis();
     while (!LSFS::CanMount() && millis() - start < 1000)
+      #ifdef ARDUINO_ARCH_ESP32   // ESP architecture
+      yield();
+      #else
       armv7m_core_yield();
+      #endif
     if (!LSFS::CanMount()) {
       char tmp[128];
       LSFS::WhyBusy(tmp);
-      #if (defined(OSx) && defined(DIAGNOSE_STORAGE)) || !defined(OSx)
+      #if defined(DIAGNOSE_STORAGE)
       STDOUT.print(STORAGE_RES" is busy, flags= ");
       STDOUT.println(tmp);
       #endif
@@ -89,7 +101,7 @@ public:
     }
     
     if (!LSFS::Begin()) {
-      #if (defined(OSx) && defined(DIAGNOSE_STORAGE)) || !defined(OSx)
+      #if defined(DIAGNOSE_STORAGE)
       STDOUT.println("Failed to mount " STORAGE_RES);
       #endif
       return;
@@ -101,7 +113,7 @@ protected:
     last_enabled_ = millis();
   }
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
+#ifdef ULTRAPROFFIE
   void Loop() override {
       if (Active()) 
           RequestPower();   // for all subscribed domains       
@@ -117,7 +129,7 @@ protected:
         }   
       }
   }
-#else // nULTRA_PROFFIE
+#else 
   void Loop() override {
       if (LSFS::IsMounted()) {
         if (!Active()) {
@@ -136,12 +148,12 @@ protected:
         }
       }
   }
-#endif // ULTRA_PROFFIE
+#endif 
 
   
   
 
-#if defined(ULTRA_PROFFIE) && defined(OSx) 
+#ifdef ULTRAPROFFIE
         void PwrOn_Callback() override { 
           #ifdef DIAGNOSE_POWER
             STDOUT.println(" sd+ "); 
@@ -159,7 +171,7 @@ protected:
               STDOUT.println(" sd- "); 
             #endif
         }         
-#endif // ULTRA_PROFFIE
+#endif
 
 private:
   uint32_t last_enabled_;
@@ -168,7 +180,7 @@ private:
 
 SDCard sdcard;
 inline void MountSDCard() { sdcard.Mount(); }
-#else  // v4 && enable_sd
+#else
 inline void MountSDCard() {  }
 #endif // v4 && enable_sd
 

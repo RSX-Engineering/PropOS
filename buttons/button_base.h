@@ -110,7 +110,7 @@ protected:
         if (millis() - push_millis_ < BUTTON_SHORT_CLICK_TIMEOUT) {
           SendClick(EVENT_CLICK_SHORT);
         }
-        #ifdef ULTRA_PROFFIE
+        #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
         else if(millis() - push_millis_ < 1500) {
           SendClick(EVENT_CLICK_MEDIUM);
         }
@@ -171,7 +171,7 @@ protected:
   }
 
   void Help() override {
-    #if defined(COMMANDS_HELP) || !defined(OSx)
+    #if defined(COMMANDS_HELP) 
 #ifndef DISABLE_DIAGNOSTIC_COMMANDS    
     STDOUT.print(" ");
     STDOUT.print(name_);

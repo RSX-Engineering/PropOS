@@ -29,7 +29,7 @@ public:
         charge_time = 5e-6; // 5 us
       else if (channel == ADC_CHANNEL_ADC1_VBAT)
         charge_time = 12e-6; // 12 us
-      #ifdef ULTRA_PROFFIE
+      #if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
             else if (channel == ADC_CHANNEL_ADC1_VREFINT)
         charge_time = 12e-6;   // charge_time = 12e-6;  
       #endif
@@ -139,11 +139,7 @@ bool X_stm32l4_adc_calibrate(stm32l4_adc_t *adc)
   }
 
   int Value() const {
-  #ifndef OSx
-    return value_ >> 2;
-  #else 
     return value_;
-  #endif
   }
 
   void loop() {
@@ -155,7 +151,7 @@ bool X_stm32l4_adc_calibrate(stm32l4_adc_t *adc)
     stm32l4_adc_enable(&stm32l4_adc, 0,NULL, NULL, 0);
     stm32l4_adc.state = ADC_STATE_BUSY;
 
-#ifdef ULTRA_PROFFIE
+#if defined(ULTRAPROFFIE) && defined(ARDUINO_ARCH_STM32L4) // STM UltraProffies
     if(g_APinDescription[pin_].adc_input != ADC_CHANNEL_ADC1_VBAT && g_APinDescription[pin_].adc_input != ADC_CHANNEL_ADC1_VREFINT)
 #endif
     {

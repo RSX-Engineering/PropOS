@@ -24,27 +24,24 @@ public:
   }
 protected:
   void init(int argnum) {
-    char default_value[32];
-    itoa(color_.r, default_value, 10);
-    strcat(default_value, ",");
-    itoa(color_.g, default_value + strlen(default_value), 10);
-    strcat(default_value, ",");
-    itoa(color_.b, default_value + strlen(default_value), 10);
+    // NO ARGUMENT PARSING - USE DEFAULT
+    // char default_value[32];
+    // itoa(color_.r, default_value, 10);
+    // strcat(default_value, ",");
+    // itoa(color_.g, default_value + strlen(default_value), 10);
+    // strcat(default_value, ",");
+    // itoa(color_.b, default_value + strlen(default_value), 10);
     
-#ifndef OSx 
-    const char* arg = CurrentArgParser->GetArg(argnum, "COLOR", default_value);
-    if (arg) {
-      char* tmp;
-      int r = strtol(arg, &tmp, 0);
-      int g = strtol(tmp+1, &tmp, 0);
-      int b = strtol(tmp+1, NULL, 0);
-      // TODO: color names?
-      color_ = Color16(r, g, b);
-    }
-#endif // OSx 
-
+    // const char* arg = CurrentArgParser->GetArg(argnum, "COLOR", default_value);
+    // if (arg) {
+    //   char* tmp;
+    //   int r = strtol(arg, &tmp, 0);
+    //   int g = strtol(tmp+1, &tmp, 0);
+    //   int b = strtol(tmp+1, NULL, 0);
+    //   // TODO: color names?
+    //   color_ = Color16(r, g, b);
+    // }
   }
-
 
   Color16 color_;
 };

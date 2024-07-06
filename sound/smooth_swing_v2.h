@@ -10,7 +10,7 @@ public:
   SmoothSwingV2() : SaberBasePassThrough() {}
 
   void Activate(SaberBase* base_font) {
-    #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+    #if defined(DIAGNOSE_PRESETS) 
       STDOUT.println("Activating SmoothSwing V2");
     #endif
     if (SFX_swingl) {
@@ -22,34 +22,12 @@ public:
     }
     SetDelegate(base_font);
     if (L->files_found() != H->files_found()) {
-      #if defined(DIAGNOSE_PRESETS) || !defined(OSx)
+      #if defined(DIAGNOSE_PRESETS) 
         STDOUT.println("Warning, swingl and swingh should have the same number of files.");
       #endif
     }
 
-  #ifndef OSx
-    // check for swngxx files to use as accent swings
-    if ((SFX_swng || SFX_swing) > 0 && smooth_swing_config.AccentSwingSpeedThreshold > 0.0) {
-      STDOUT.println("Accent Swings Enabled.");
-      STDOUT.print("Polyphonic swings: ");
-      STDOUT.println(SFX_swng.files_found());
-      STDOUT.print("Monophonic swings: ");
-      STDOUT.println(SFX_swing.files_found());
-      accent_swings_present = true;
-      if (SFX_slsh && smooth_swing_config.AccentSlashAccelerationThreshold > 0.0) {
-        STDOUT.println("Accent Slashes Enabled.");
-        STDOUT.print("Polyphonic slashes: ");
-        STDOUT.println(SFX_slsh.files_found());
-        accent_slashes_present = true;
-      } else {
-        accent_slashes_present = false;
-        STDOUT.println("Accent Slashes NOT Detected: ");
-      }
-    } else {
-      accent_swings_present = false;
-      STDOUT.println("Accent Swings NOT Detected: ");
-    }
-  #else // OSx
+
     // check for swngxx files to use as accent swings
     accent_swings_present = false;  // assume failure
     #ifdef DIAGNOSE_PRESETS
@@ -85,7 +63,7 @@ public:
     #endif //  DIAGNOSE_PRESETS
 
 
-  #endif // OSx
+  
 
     
   }
@@ -140,7 +118,7 @@ public:
     delegate_->SB_Off(off_type);
   }
 
-#ifdef OSx
+
 private:
   bool paused = false;  
 public:
@@ -149,7 +127,7 @@ public:
     if (!on_) return;     // not active
     paused = newState;
   }
-#endif
+
 
   enum class SwingState {
     OFF, // waiting for swing to start
@@ -174,16 +152,8 @@ public:
 
     switch (state_) {
       case SwingState::OFF:
-        #ifdef OSx
           if (paused) break;
-        #endif
         if (speed < smooth_swing_config.SwingStrengthThreshold) {
-#if 1
-          if (monitor.ShouldPrint(Monitoring::MonitorSwings)) {
-            STDOUT.print("speed: ");
-            STDOUT.println(speed);
-          }
-#endif
           break;
         }
         state_ = SwingState::ON;
@@ -217,24 +187,6 @@ public:
 
           mixhum *= smooth_swing_config.MaxSwingVolume;
 
-          if (monitor.ShouldPrint(Monitoring::MonitorSwings)) {
-            STDOUT.print("speed: ");
-            STDOUT.print(speed);
-            STDOUT.print(" R: ");
-            STDOUT.print(-speed * delta / 1000000.0);
-            STDOUT.print(" MP: ");
-            STDOUT.print(A.midpoint);
-            STDOUT.print(" B: ");
-            STDOUT.print(A.begin());
-            STDOUT.print(" E: ");
-            STDOUT.print(A.end());
-            STDOUT.print("  mixhum: ");
-            STDOUT.print(mixhum);
-            STDOUT.print("  mixab: ");
-            STDOUT.print(mixab);
-            STDOUT.print("  hum_volume: ");
-            STDOUT.println(hum_volume);
-          }
           if (on_) {
             // We need to stop setting the volume when off, or playback may never stop.
             mixhum = delegate_->SetSwingVolume(swing_strength, mixhum);
@@ -248,11 +200,6 @@ public:
         state_ = SwingState::OUT;
 
       case SwingState::OUT:
-        if (!A.isOff() || !B.isOff()) {
-          if (monitor.ShouldPrint(Monitoring::MonitorSwings)) {
-            STDOUT.println("Waiting for volume = 0");
-          }
-        }
         PickRandomSwing();
         state_ = SwingState::OFF;
     }
