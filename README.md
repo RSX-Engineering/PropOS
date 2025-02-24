@@ -1,15 +1,14 @@
-# ProffieOSx
+# PropOS
 
 Open source lightsaber control software based on ProffieOS. 
 
 ### Supported hardware  
-* UltraProffie Zero
-* UltraProffie Lite
+* SaberProp Core
+* SaberProp bare board
 * ProffieBoard V2
 
 ### Resources
-* [ProffieOSx Wiki](../../wiki)
-* [Technical Documents][https://ultraproffie.com/pages/documents]
-* [Video Tutorials][https://ultraproffie.com/pages/video_tutorials]
-* [UltraProffie Launcher][https://ultraproffie.com]
+* [Wiki](../../wiki)
+* [Video Tutorials][https://www.youtube.com/playlist?list=PLzhHuzU84k-qphej5T5qa4VmrH5_nhTEU]
+
 
